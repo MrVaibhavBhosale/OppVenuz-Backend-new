@@ -14,3 +14,5 @@ class OppvenuzChoiceAdmin(admin.ModelAdmin):
     )
     search_fields = ('choice_name',)
     list_filter = ('status',)
+
+admin.site.register(Service_master)

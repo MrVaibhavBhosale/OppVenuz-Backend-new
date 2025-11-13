@@ -1,1355 +1,2168 @@
-from django.http import JsonResponse
-from rest_framework import generics, permissions, status
-from django.db import transaction
+from rest_framework import generics, status
 from rest_framework.response import Response
-from django.shortcuts import get_object_or_404
-from django.utils import timezone
-from admin_master.models import CompanyTypeMaster
-from admin_master.utils import get_status
-from decouple import config
-from oauth2_provider.contrib.rest_framework.authentication import OAuth2Authentication
-from vendor.authentication import VendorJWTAuthentication
-from datetime import timedelta
-import traceback
-from concurrent.futures import ThreadPoolExecutor
-
-from .models import (
-    Vendor, 
-    VendorDevice, 
-    Vendor_registration, 
-    PhoneVerification,
-    EmailVerification,
-    VendorDocument,
-    VenderBusinessDescription,
-    ReadyToSellItem,
-    VendorSocialMedia,
-    VendorMedia,
-)
-
-from .serializers import (
-    VendorSerializer,
-    VendorBasicSerializer,
-    VenderBusinessDescriptionSerializer,
-    VendorSignupSerializer,
-    VendorLoginSerializer,
-    VendorDataSerializer,
-    VerifyEmailOTPSerializer,
-    VerifyPhoneOTPSerializer,
-    RequestEmailOTPSerializer,
-    RequestPhoneOTPSerializer,
-    VendorDocumentSerializer,
-    ForgotMPINRequestSerializer,
-    ChangeMPINSerializer,
-    ReadyToSellItemSerializer,
-    VendorRegistrationSerializer,
-    VendorBasicDetailsSerializer,
-    VendorSocialMediaSerializer,
-    VendorMediaSerializer,
-)
-
-from .utils import (
-    generate_numeric_otp,
-    send_otp_email, 
-    send_otp_sms,
-    mask_email,
-    mask_phone
-)
-from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from user_agents import parse
+from rest_framework.exceptions import ValidationError
+from django.utils import timezone
 from drf_yasg.utils import swagger_auto_schema
 from django.utils.decorators import method_decorator
 import logging
-import boto3
-import uuid
-import os
 from rest_framework.views import APIView
+from drf_yasg import openapi
+from .utils import get_status
+from django.shortcuts import get_object_or_404
+from rest_framework.parsers import MultiPartParser, FormParser
+import boto3
+from decouple import config
+
+from .models import (
+    Role_master, 
+    Service_master, 
+    Best_suited_for, 
+    State_master, 
+    Payment_type,
+    document_type,
+    City_master,
+    Article_type,
+    Delivery_option,
+    Best_deal,
+    App_version,
+    StatusMaster,
+    CakeMaster,
+    CompanyTypeMaster,
+    VenueTypeMaster,
+    OppvenuzChoiceMaster,
+    GstMaster,
+    OnboardingScreens,
+    Social_media_master,
+    Terms_and_condition_master,
+    Oppvenuz_ques_ans_master,
+    CompanyDocumentMapping,
+)
+ 
+from .serializers import (
+    RoleMasterSerializer, 
+    ServiceSerializer, 
+    BestSuitedForSerializer, 
+    StateSerializer, 
+    PaymentTypeSerializer,
+    document_typeSerializer,
+    CitySerializer,
+    ArticleTypeSerializer,
+    DeliveryOptionSerializer,
+    BestDealSerializer,
+    AppVersionSerializer,
+    CakeMasterSerializer,
+    CompanyTypeMasterSerializer,
+    VenueTypeMasterSerializer,
+    OppvenuzChoiceMasterSerializer,
+    GstMasterSerializer,
+    OnboardingScreenSerializer,
+    SocialMediaSerializer,
+    TermsConditionSerializer,
+    QuestionAnswerSerializer,
+    CompanyDocumentMappingSerializer,
+    
+)
+
 logger = logging.getLogger("django")
 
-
-class VendorBasicDetailsAPI(generics.CreateAPIView, generics.UpdateAPIView):
-    serializer_class = VendorBasicSerializer
-    permission_classes = [permissions.AllowAny]
-    
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response({
-            "status": "success",
-            "message": "Vendor basic details created successfully",
-            "data": serializer.data
-        }, status=status.HTTP_201_CREATED)
-    
-    def update(self, request, *args, **kwargs):
-        instance = Vendor.objects.get(id=kwargs.get('id'))
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response({
-            "status": "success",
-            "message": "Vendor basic details updated successfully",
-            "data": serializer.data
-        }, status=status.HTTP_200_OK)
-    
-@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Vendor Details']))
-class VendorDescriptionAPI(generics.UpdateAPIView):
-    serializer_class = VenderBusinessDescriptionSerializer
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    queryset = VenderBusinessDescription.objects.all()
-    lookup_field = "vendor_reg_id"
-
-    def update(self, request, *args, **kwargs):
-        vendor_reg_id = kwargs.get("vendor_reg_id")
-
-        # Check if vendor exists
-        try:
-            vendor = Vendor_registration.objects.get(vendor_id=vendor_reg_id)
-        except Vendor_registration.DoesNotExist:
-            return Response(
-                {"status": "error", "message": "Vendor not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        #find existing record
-        description_record = VenderBusinessDescription.objects.filter(vendor_reg_id=vendor_reg_id).first()
-
-        if description_record:
-            serializer = self.get_serializer(description_record, data=request.data, partial=True)
-            serializer.is_valid(raise_exception=True)
-            serializer.save(updated_by=request.user.username if request.user else None)
-            message = "Vendor description updated successfully"
-        else:
-            serializer = self.get_serializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-            serializer.save(
-                vendor=vendor,
-                vendor_reg_id=vendor.vendor_id, 
-                created_by=request.user.username if request.user else None
-            )
-            message = "Vendor description created successfully"
-
-        return Response(
-            {
-                "status": "success",
-                "message": message,
-                "data": serializer.data
-            },
-            status=status.HTTP_200_OK
-        )
-@method_decorator(name='get', decorator=swagger_auto_schema(tags=['Vendor Details']))
-class GetVendorDescriptionAPI(generics.ListAPIView):
-    serializer_class = VenderBusinessDescriptionSerializer
+# ------------------ ADMIN ROLES -----------------------------------
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Admin Roles']))
+class RoleCreateView(generics.CreateAPIView):    
+    queryset = Role_master.objects.all()
+    serializer_class = RoleMasterSerializer
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
-    def get_queryset(self):
-        queryset = VenderBusinessDescription.objects.filter(status=1).order_by('-id')
+    def perform_create(self, serializer):
+        user_fullname = getattr(self.request.user, 'fullname', self.request.user.username)
+        role_name = serializer.validated_data.get('role_name')
+        if Role_master.objects.filter(role_name__iexact=role_name, status__in=[1,2]).exists():
+         raise ValidationError({"role_name": f"'{role_name}' already exists and is active."})
 
-        # Filter by vendor_id if provided
-        vendor_id = self.request.query_params.get('vendor_id', None)
-        if vendor_id:
-            queryset = queryset.filter(vendor_id=vendor_id)
-            if not queryset.exists():
-                logger.warning(f"No details found for vendor_id: {vendor_id}")
-            return Response({
-                "error": "No details found for vendor_id {vendor_id}"
-            }, status=status.HTTP_404_NOT_FOUND)
-        return queryset
+        if role_name and not role_name.replace(' ', '').isalpha():
+            logger.warning(f"Invalid role name: {role_name}")
+            raise ValidationError({"role_name": "Role name must contain only letters and spaces."})
 
-    def list(self, request, *args, **kwargs):
-        serializer = self.get_serializer(self.get_queryset(), many=True)
-        return Response({
-            "status": True,
-            "message": "Details fetched successfully",
-            "data": serializer.data
-        }, status=status.HTTP_200_OK)
-
-class VendorListCreateAPI(generics.ListCreateAPIView):
-    serializer_class = VendorSerializer
-    permission_classes = [permissions.AllowAny]
-    queryset = Vendor.objects.all()
-
-    def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-        serializer = self.get_serializer(queryset, many=True)
-        return Response({
-            "status": "success",
-            "message": "Fetched all vendors",
-            "data": serializer.data
-        }, status=status.HTTP_200_OK)
+        serializer.save(created_by=user_fullname, updated_by=user_fullname)
 
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response({
-            "status": "success",
-            "message": "Vendor created successfully",
-            "data": serializer.data
-        }, status=status.HTTP_201_CREATED)
-
-class VendorRetrieveUpdateDeleteAPI(generics.RetrieveUpdateDestroyAPIView):
-    serializer_class = VendorSerializer
-    permission_classes = [permissions.AllowAny]
-    queryset = Vendor.objects.all()
-    lookup_field = "id"
-
-    def retrieve(self, request, *args, **kwargs):
-        instance = self.get_object()
-        serializer = self.get_serializer(instance)
-        return Response({
-            "status": "success",
-            "message": "Vendor fetched successfully",
-            "data": serializer.data
-        }, status=status.HTTP_200_OK)
-
-    def update(self, request, *args, **kwargs):
-        instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response({
-            "status": "success",
-            "message": "Vendor updated successfully",
-            "data": serializer.data
-        }, status=status.HTTP_200_OK)
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.delete()
-        return Response({
-            "status": "success",
-            "message": "Vendor deleted successfully"
-        }, status=status.HTTP_200_OK)
-    
-@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Vendor Signup']))
-class VendorSignupView(generics.GenericAPIView):
-    serializer_class = VendorSignupSerializer
-    permission_classes = [AllowAny]
-
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        if not serializer.is_valid():
-            return Response({
-                "status": False,
-                "message": "Validation failed.",
-                "errors": serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        contact_no = serializer.validated_data.get("contact_no")
-        documents_data = request.data.get("documents", [])
-
-        # Check TEMP documents
-        uploaded_docs = VendorDocument.objects.filter(
-            vendor_business_no=str(contact_no),
-            status="TEMP"
-        )
-        if not uploaded_docs.exists():
-            return Response({
-                "error": "Please upload at least one document before registration."
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        matched_doc_ids = []
-        for doc in documents_data:
-            doc_type = str(doc.get("document_type", "")).strip()
-            doc_url = str(doc.get("document_url", "")).strip()
-
-            matching_docs = uploaded_docs.filter(
-                document_type__iexact=doc_type,
-                document_url__iexact=doc_url
-            )
-            if matching_docs.exists():
-                matched_doc_ids.extend(list(matching_docs.values_list("id", flat=True)))
-
-        matched_doc_ids = list(set(matched_doc_ids))  # remove duplicates
-
-        # Collect device info
-        user_agent_string = request.META.get('HTTP_USER_AGENT', '')
-        user_agent = parse(user_agent_string)
-        if user_agent.is_mobile:
-            device_type = "Mobile"
-        elif user_agent.is_tablet:
-            device_type = "Tablet"
-        elif user_agent.is_pc:
-            device_type = "Desktop"
-        else:
-            device_type = "Other"
-            
-        os_family = user_agent.os.family or ""
-        if "Android" in os_family:
-            os_type = "Android"
-        elif "iOS" in os_family:
-            os_type = "iOS"
-        else:
-            os_type = os_family or "Other"
-
-        device_info = {
-            "device_type": device_type,
-            "os_version": user_agent.os.version_string,
-            "browser_name": user_agent.browser.family,
-            "browser_version": user_agent.browser.version_string,
-            "os_type": os_type,
-        }
-
-        # All checks done, now save
-        vendor = serializer.save()
-        if matched_doc_ids:
-            VendorDocument.objects.filter(id__in=matched_doc_ids).update(status="PERMANENT")
-            vendor.document_id = matched_doc_ids
-            vendor.save(update_fields=["document_id"])
-
-        VendorDevice.objects.update_or_create(
-            vendor_id=vendor,
-            device_type=device_info["device_type"],
-            os_version=device_info["os_version"],
-            browser_name=device_info["browser_name"],
-            os_type=device_info["os_type"],
-            defaults={"browser_version": device_info["browser_version"]}
-        )
-
-        refresh = RefreshToken.for_user(vendor)
-        vendor_data = self.get_serializer(vendor).data
-        vendor_data.update({
-            "access": str(refresh.access_token),
-            "refresh": str(refresh),
-            "device_info": device_info
-        })
-
+        response = super().create(request, *args, **kwargs)
         return Response({
             "status": True,
-            "message": "Vendor registered successfully.",
-            "data": vendor_data
+            "message": "Role created successfully",
+            "data": response.data
         }, status=status.HTTP_201_CREATED)
 
-
-
-@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Vendor login']))
-class VendorLoginView(generics.GenericAPIView):
-    serializer_class = VendorLoginSerializer
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['Admin Roles']))
+class RoleListView(generics.ListAPIView):
+    serializer_class = RoleMasterSerializer
     permission_classes = [AllowAny]
     # authentication_classes = [JWTAuthentication]
     # permission_classes = [IsAuthenticated]
 
-    def post(self, request, *args, **kwargs):
+    def get_queryset(self):
+        queryset = Role_master.objects.filter(status=1).order_by('-id')
+        role = self.request.query_params.get('role_name', None)
+        if role:
+            queryset = queryset.filter(role_name__icontains=role)
+            if not queryset.exists():
+                logger.warning(f"{role} no such role exists")
+                raise ValidationError({"role_name": f"{role} no such role exists"})
+        return queryset
+    def list(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.get_queryset(), many=True)
+        return Response({"status": True, "message": "Roles fetched successfully", "data": serializer.data}, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Admin Roles']))
+@method_decorator(name='patch', decorator=swagger_auto_schema(tags=['Admin Roles']))
+class RoleUpdateView(generics.UpdateAPIView):
+    queryset = Role_master.objects.filter(status=1)
+    serializer_class = RoleMasterSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        data = serializer.validated_data
+        role_name = data.get('role_name', None)
+
+        if role_name and not role_name.replace(' ', '').isalpha():
+            logger.warning(f"Invalid role name: {role_name}")
+            raise ValidationError({"role_name": "Role name must contain only letters and spaces."})
+
+        updated_by = getattr(user, "fullname", user.username)
+        serializer.save(updated_by=updated_by)
+    def update(self, request, *args, **kwargs):
+        response = super().update(request, *args, **kwargs)
+        return Response({"status": True, "message": "Role updated successfully", "data": response.data}, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['Admin Roles']))
+class RoleDeleteView(generics.DestroyAPIView):
+    queryset = Role_master.objects.filter(status=1)
+    serializer_class = RoleMasterSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            instance = self.get_object()
+            user = request.user
+            instance.status = 3
+            instance.updated_by = getattr(user, "fullname", user.username)
+            instance.updated_at = timezone.now()
+            instance.save(update_fields=['status', 'updated_by', 'updated_at'])
+            return Response({"status": True,"message": "Role deleted successfully."},status=status.HTTP_200_OK)
+        except Role_master.DoesNotExist:
+            logger.warning(f"Role ID {kwargs.get('id')} not found")
+            return Response({"error": "Role not found"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Error deleting role: {str(e)}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# ----------------------- ADMIN BEST SUITED FOR -----------------------------------
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Admin Best Suited For']))
+class BestSuitedForCreateView(generics.CreateAPIView):
+    queryset = Best_suited_for.objects.all()
+    serializer_class = BestSuitedForSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        data = serializer.validated_data
+        name = data.get('name', None) 
+        if name and not name.replace(' ', '').isalpha():
+            raise ValidationError({"name": "Name must contain only letters and spaces."})
+            
+        user_fullname = getattr(self.request.user, 'fullname', self.request.user.username)
+        best_suited = serializer.validated_data.get('name')
+        if Best_suited_for.objects.filter(name__iexact=best_suited, status__in=[1,2]).exists():
+         raise ValidationError({"name": f"'{name}' already exists and is active."})
+        serializer.save(created_by=user_fullname, updated_by=user_fullname)
+    def create(self, request, *args, **kwargs):
+        response = super().create(request, *args, **kwargs)
+        return Response({"status": True, "message": "Best Suited created successfully", "data": response.data}, status=status.HTTP_201_CREATED)
+
+
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['Admin Best Suited For']))
+class BestSuitedForListView(generics.ListAPIView):
+    serializer_class = BestSuitedForSerializer
+    permission_classes = [AllowAny]
+    # authentication_classes = [JWTAuthentication]
+    # permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = Best_suited_for.objects.filter(status=1).order_by('-id')
+        name = self.request.query_params.get('name', None)
+        if name:
+            queryset = queryset.filter(name__icontains=name)
+            if not queryset.exists():
+                logger.warning(f"{name} no such name exists")
+                raise ValidationError({"name": f"{name} no such name exists"})
+        return queryset
+    def list(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.get_queryset(), many=True)
+        return Response({"status": True, "message": "Best Suited fetched successfully", "data": serializer.data}, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Admin Best Suited For']))
+@method_decorator(name='patch', decorator=swagger_auto_schema(tags=['Admin Best Suited For']))
+class BestSuitedForUpdateView(generics.UpdateAPIView):
+    queryset = Best_suited_for.objects.filter(status=1)
+    serializer_class = BestSuitedForSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        data = serializer.validated_data
+        name = data.get('name', None)
+
+        if name and not name.replace(' ', '').isalpha():
+            logger.warning(f"Invalid name: {name}")
+            raise ValidationError({"name": "Name must contain only letters and spaces."})
+
+        updated_by = getattr(user, "fullname", user.username)
+        serializer.save(updated_by=updated_by)
+    def update(self, request, *args, **kwargs):
+        response = super().update(request, *args, **kwargs)
+        return Response({"status": True, "message": "Best Suited updated successfully", "data": response.data}, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['Admin Best Suited For']))
+class BestSuitedForDeleteView(generics.DestroyAPIView):
+    queryset = Best_suited_for.objects.filter(status=1)
+    serializer_class = BestSuitedForSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            instance = self.get_object()
+            user = request.user
+            instance.status = 3
+            instance.updated_by = getattr(user, "fullname", user.username)
+            instance.updated_at = timezone.now()
+            instance.save(update_fields=['status', 'updated_by', 'updated_at'])
+            return Response({"status": True,"message": "Name deleted successfully."},status=status.HTTP_200_OK)
+        except Best_suited_for.DoesNotExist:
+            logger.warning(f"Name ID {kwargs.get('id')} not found")
+            return Response({"error": "Name not found"}, status=404)
+        except Exception as e:
+            logger.error(f"Error deleting Name: {str(e)}")
+            return Response({"error": str(e)}, status=500)
+
+#  ---------------------- ADMIN STATE ---------------------------
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Admin State']))
+class StateCreateView(generics.CreateAPIView):
+    queryset = State_master.objects.all()
+    serializer_class = StateSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        data = serializer.validated_data
+        state_name = data.get('state_name', None) 
+        if state_name and not state_name.replace(' ', '').isalpha():
+            raise ValidationError({"state_name": "State Name must contain only letters and spaces."})
+            
+        user_fullname = getattr(self.request.user, 'fullname', self.request.user.username)
+        state = serializer.validated_data.get('state_name')
+        if State_master.objects.filter(state_name__iexact=state, status__in=[1,2]).exists():
+         raise ValidationError({"state": f"'{state}' already exists and is active."})
+        serializer.save(created_by=user_fullname, updated_by=user_fullname)
+    def create(self, request, *args, **kwargs):
+        response = super().create(request, *args, **kwargs)
+        return Response({"status": True, "message": "State created successfully", "data": response.data}, status=status.HTTP_201_CREATED)
+
+
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['Admin State']))
+class StateListView(generics.ListAPIView):
+    serializer_class = StateSerializer
+    permission_classes = [AllowAny]
+    # authentication_classes = [JWTAuthentication]
+    # permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = State_master.objects.filter(status=1).order_by('-id')
+        state_name = self.request.query_params.get('state_name', None)
+        if state_name:
+            queryset = queryset.filter(state_name__icontains=state_name)
+            if not queryset.exists():
+                logger.warning(f"{state_name} no such State exists")
+                raise ValidationError({"state_name": f"{state_name} no such name exists"})
+        return queryset
+    def list(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.get_queryset(), many=True)
+        return Response({"status": True, "message": "State fetched successfully", "data": serializer.data}, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Admin State']))
+@method_decorator(name='patch', decorator=swagger_auto_schema(tags=['Admin State']))
+class StateUpdateView(generics.UpdateAPIView):
+    queryset = State_master.objects.filter(status=1)
+    serializer_class = StateSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        data = serializer.validated_data
+        state_name = data.get('state_name', None)
+
+        if state_name and not state_name.replace(' ', '').isalpha():
+            logger.warning(f"Invalid state name: {state_name}")
+            raise ValidationError({"state_name": "State Name must contain only letters and spaces."})
+
+        updated_by = getattr(user, "fullname", user.username)
+        serializer.save(updated_by=updated_by)
+    def update(self, request, *args, **kwargs):
+        response = super().update(request, *args, **kwargs)
+        return Response({"status": True, "message": "State updated successfully", "data": response.data}, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['Admin State']))
+class StateDeleteView(generics.DestroyAPIView):
+    queryset = State_master.objects.filter(status=1)
+    serializer_class = StateSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            instance = self.get_object()
+            #  Check if any city is linked to this state
+            if City_master.objects.filter(state=instance, status=1).exists():
+                return Response(
+                    {"error": "Cannot delete this state because it is linked with one or more cities."},
+                    status=400
+                )
+            user = request.user
+            instance.status = 3
+            instance.updated_by = getattr(user, "fullname", user.username)
+            instance.updated_at = timezone.now()
+            instance.save(update_fields=['status', 'updated_by', 'updated_at'])
+            return Response({"status": True,"message": "State deleted successfully."},status=status.HTTP_200_OK)
+        except State_master.DoesNotExist:
+            logger.warning(f"State ID {kwargs.get('id')} not found")
+            return Response({"error": "State not found"}, status=404)
+        except Exception as e:
+            logger.error(f"Error deleting State: {str(e)}")
+            return Response({"error": str(e)}, status=500)
+
+#  ----------------------- ADMIN CITY ----------------------------------
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Admin City']))
+class CityCreateView(generics.CreateAPIView):
+    queryset = City_master.objects.all()
+    serializer_class = CitySerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        data = serializer.validated_data
+        city_name = data.get('city_name', None) 
+        if city_name and not city_name.replace(' ', '').isalpha():
+            raise ValidationError({"city_name": "City Name must contain only letters and spaces."})
+            
+        user_fullname = getattr(self.request.user, 'fullname', self.request.user.username)
+        city = serializer.validated_data.get('city_name')
+        if City_master.objects.filter(city_name__iexact=city, status__in=[1,2]).exists():
+         raise ValidationError({"city_name": f"'{city_name}' already exists and is active."})
+        serializer.save(created_by=user_fullname, updated_by=user_fullname)
+    def create(self, request, *args, **kwargs):
+        response = super().create(request, *args, **kwargs)
+        return Response({"status": True, "message": "City created successfully", "data": response.data}, status=status.HTTP_201_CREATED)
+
+
+city_list_parameters = [
+    openapi.Parameter(
+        'state_id', 
+        in_=openapi.IN_QUERY, # Specifies that the parameter is passed in the URL query string
+        type=openapi.TYPE_INTEGER, 
+        required=True,       # Marks it as required in the Swagger UI
+        description='State ID used to filter the cities.'
+    ),
+    openapi.Parameter(
+        'city_name', 
+        in_=openapi.IN_QUERY, 
+        type=openapi.TYPE_STRING, 
+        required=False, 
+        description='Optional. Search query to filter cities by name (case-insensitive).'
+    ),
+]
+
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['Admin City'], manual_parameters=city_list_parameters 
+))
+
+class CityListView(generics.ListAPIView):
+    serializer_class = CitySerializer
+    permission_classes = [AllowAny]
+    # authentication_classes = [JWTAuthentication]
+    # permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = City_master.objects.filter(status=1).order_by('-id')
+        state_id = self.request.query_params.get('state_id', None)
+        if state_id:
+            queryset = queryset.filter(state_id=state_id)
+            if not queryset.exists():
+                logger.warning(f"No cities found for state_id={state_id}")
+                raise ValidationError({"state_id": f"No cities found for this state_id ({state_id})"})
+        else:
+            raise ValidationError({"state_id": "state_id is required"})
+
+        city_name = self.request.query_params.get('city_name', None)
+        if city_name:
+            queryset = queryset.filter(city_name__icontains=city_name)
+            if not queryset.exists():
+                logger.warning(f"{city_name} no such City exists in state_id={state_id}")
+                raise ValidationError({"city_name": f"{city_name} no such city exists in this state"})
+        return queryset
+    def list(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.get_queryset(), many=True)
+        return Response({"status": True, "message": "Cities fetched successfully", "data": serializer.data}, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Admin City']))
+@method_decorator(name='patch', decorator=swagger_auto_schema(tags=['Admin City']))
+class CityUpdateView(generics.UpdateAPIView):
+    queryset = City_master.objects.filter(status=1)
+    serializer_class = CitySerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        data = serializer.validated_data
+        city_name = data.get('city_name', None)
+
+        if city_name and not city_name.replace(' ', '').isalpha():
+            logger.warning(f"Invalid city name: {city_name}")
+            raise ValidationError({"city_name": "City Name must contain only letters and spaces."})
+
+        updated_by = getattr(user, "fullname", user.username)
+        serializer.save(updated_by=updated_by)
+    def update(self, request, *args, **kwargs):
+        response = super().update(request, *args, **kwargs)
+        return Response({"status": True, "message": "City updated successfully", "data": response.data}, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['Admin City']))
+class CityDeleteView(generics.DestroyAPIView):
+    queryset = City_master.objects.filter(status=1)
+    serializer_class = CitySerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            instance = self.get_object()
+            user = request.user
+            instance.status = 3
+            instance.updated_by = getattr(user, "fullname", user.username)
+            instance.updated_at = timezone.now()
+            instance.save(update_fields=['status', 'updated_by', 'updated_at'])
+            return Response({"status": True,"message": "City deleted successfully."},status=status.HTTP_200_OK)
+        except City_master.DoesNotExist:
+            logger.warning(f"City ID {kwargs.get('id')} not found")
+            return Response({"error": "City not found"}, status=404)
+        except Exception as e:
+            logger.error(f"Error deleting City: {str(e)}")
+            return Response({"error": str(e)}, status=500)
+
+
+# ------------------- ADMIN PAYMENT TYPE ---------------------------
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Admin Payment Types']))
+class PaymentTypeCreateView(generics.CreateAPIView):
+    queryset = Payment_type.objects.all()
+    serializer_class = PaymentTypeSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        data = serializer.validated_data
+        payment_type = data.get('payment_type', None) 
+        if payment_type and not payment_type.replace(' ', '').isalpha():
+            raise ValidationError({"payment_type": "Payment Type must contain only letters and spaces."})
+            
+        user_fullname = getattr(self.request.user, 'fullname', self.request.user.username)
+        payment_type = serializer.validated_data.get('payment_type')
+        if Payment_type.objects.filter(payment_type__iexact=payment_type, status__in=[1,2]).exists():
+         raise ValidationError({"payment_type": f"'{payment_type}' already exists and is active."})
+        serializer.save(created_by=user_fullname, updated_by=user_fullname)
+    def create(self, request, *args, **kwargs):
+        response = super().create(request, *args, **kwargs)
+        return Response({"status": True, "message": "Payment Type created successfully", "data": response.data}, status=status.HTTP_201_CREATED)
+
+
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['Admin Payment Types']))
+class PaymentTypeListView(generics.ListAPIView):
+    serializer_class = PaymentTypeSerializer
+    permission_classes = [AllowAny]
+    # authentication_classes = [JWTAuthentication]
+    # permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = Payment_type.objects.filter(status=1).order_by('-id')
+        payment_type = self.request.query_params.get('payment_type', None)
+        if payment_type:
+            queryset = queryset.filter(payment_type__icontains=payment_type)
+            if not queryset.exists():
+                logger.warning(f"{payment_type} no such payment type exists")
+                raise ValidationError({"payment_type": f"{payment_type} no such payment type exists"})
+        return queryset
+    def list(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.get_queryset(), many=True)
+        return Response({"status": True, "message": "Payment Types fetched successfully", "data": serializer.data}, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Admin Payment Types']))
+@method_decorator(name='patch', decorator=swagger_auto_schema(tags=['Admin Payment Types']))
+class PaymentTypeUpdateView(generics.UpdateAPIView):
+    queryset = Payment_type.objects.filter(status=1)
+    serializer_class = PaymentTypeSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        data = serializer.validated_data
+        payment_type = data.get('payment_type', None)
+
+        if payment_type and not payment_type.replace(' ', '').isalpha():
+            logger.warning(f"Invalid payment type: {payment_type}")
+            raise ValidationError({"payment_type": "payment type must contain only letters and spaces."})
+
+        updated_by = getattr(user, "fullname", user.username)
+        serializer.save(updated_by=updated_by)
+    def update(self, request, *args, **kwargs):
+        response = super().update(request, *args, **kwargs)
+        return Response({"status": True, "message": "Payment Type updated successfully", "data": response.data}, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['Admin Payment Types']))
+class PaymentTypeDeleteView(generics.DestroyAPIView):
+    queryset = Payment_type.objects.filter(status=1)
+    serializer_class = PaymentTypeSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            instance = self.get_object()
+            user = request.user
+            instance.status = 3
+            instance.updated_by = getattr(user, "fullname", user.username)
+            instance.updated_at = timezone.now()
+            instance.save(update_fields=['status', 'updated_by', 'updated_at'])
+            return Response({"status": True,"message": "Payment Type deleted successfully."},status=status.HTTP_200_OK)
+        except Payment_type.DoesNotExist:
+            logger.warning(f"Payment type ID {kwargs.get('id')} not found")
+            return Response({"error": "payment type not found"}, status=404)
+        except Exception as e:
+            logger.error(f"Error deleting Payment type: {str(e)}")
+            return Response({"error": str(e)}, status=500)
+
+# -------------- ADMIN SERVICES ----------------------
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Admin Services']))
+class ServiceCreateView(generics.CreateAPIView):
+    queryset = Service_master.objects.all()
+    serializer_class = ServiceSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        user_fullname = getattr(self.request.user, 'fullname', self.request.user.username)
+        serializer.save(
+            created_by=user_fullname,
+            updated_by=user_fullname
+        )
+
+    def create(self, request, *args, **kwargs):
+        service_name = request.data.get("service_name", "").strip()
+
+        if not service_name:
+            return Response(
+                {"message": "Service name cannot be empty.", "status": False},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        existing_service = Service_master.objects.filter(
+            service_name__iexact=service_name
+        ).exclude(status=3).first()
+
+        if existing_service:
+            return Response(
+                {
+                    "message": f"Service '{service_name}' already exists.",
+                    "status": False
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
 
-        if not serializer.is_valid():
-            return Response({
-                "status": False,
-                "message": "Invalid credentials",
-                "errors": serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {
+                "message": "Service created successfully.",
+                "data": serializer.data,
+                "status": True
+            },
+            status=status.HTTP_201_CREATED
+        )
+    
 
-        user = serializer.validated_data['user']
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['Admin Services']))
+class ServiceListView(generics.ListAPIView):
+    serializer_class = ServiceSerializer
+    permission_classes = [AllowAny]
 
-        user_agent_string = request.META.get('HTTP_USER_AGENT', '')
-        user_agent = parse(user_agent_string)
+    def get_queryset(self):
+        queryset = Service_master.objects.filter(status__in=[1, 2])
 
-        if user_agent.is_mobile:
-            device_type = "Mobile"
-        elif user_agent.is_tablet:
-            device_type = "Tablet"
-        elif user_agent.is_pc:
-            device_type = "Desktop"
+        service = self.request.query_params.get('service_name', None)
+        if service:
+            queryset = queryset.filter(service_name__icontains=service.strip())
+            if not queryset.exists():
+                logger.warning(f"{service} — no such service exists.")
+                raise ValidationError({"service_name": f"'{service}' does not exist."})
+        return queryset
+    
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+
+        if queryset.exists():
+            return Response(
+                {
+                    "message": "Service list fetched successfully.",
+                    "count": queryset.count(),
+                    "data": serializer.data,
+                    "status": True
+                },
+                status=status.HTTP_200_OK
+            )
         else:
-            device_type = "Other"
+            return Response(
+                {
+                    "message": "No services found.",
+                    "data": [],
+                    "status": False
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
 
-        os_family = user_agent.os.family or ""
-        if "Android" in os_family:
-            os_type = "Android"
-        elif "iOS" in os_family:
-            os_type = "iOS"
-        else:
-            os_type = os_family or "Other"
 
-        device_info = {
-        "device_type": device_type,
-        "os_version": user_agent.os.version_string,
-        "browser_name": user_agent.browser.family,
-        "browser_version": user_agent.browser.version_string,
-        "os_type": os_type
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Admin Services']))
+@method_decorator(name='patch', decorator=swagger_auto_schema(tags=['Admin Services']))
+class ServiceUpdateView(generics.UpdateAPIView):
+    queryset = Service_master.objects.filter(status__in=[1, 2])
+    serializer_class = ServiceSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
 
-        }
+    def perform_update(self, serializer):
+        user = self.request.user
+        data = serializer.validated_data
+        service_name = data.get('service_name', None)
 
-        # Save or update device
-        VendorDevice.objects.update_or_create(
-            vendor_id=user,
-            device_type=device_info["device_type"],
-            os_version=device_info["os_version"],
-            browser_name=device_info["browser_name"],
-            os_type=device_info["os_type"],
-            defaults={
-                "browser_version": device_info["browser_version"],
-            }
+        if service_name and not service_name.replace(' ', '').isalpha():
+            logger.warning(f"invalid service name {service_name}")
+            raise ValidationError({"service_name": "Service name must contains only letters and spaces."})
+        
+        if service_name:
+            existing = Service_master.objects.filter(
+                service_name__iexact=service_name.strip(),
+                status__in=[1, 2]
+            ).exclude(id=serializer.instance.id)
+            if existing.exists():
+                raise ValidationError({"service_name": f"A service with the name '{service_name}' already exists."})
+        
+        registration_charges = data.get('registration_charges', None)
+        if registration_charges is not None and registration_charges < 0:
+            logger.warning("invalid registration charges")
+            raise ValidationError({"registration_charges": "Registration charges must contain positive number."})
+        
+        updated_by = getattr(user, "fullname", user.username)
+        serializer.save(updated_by=updated_by)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+
+        try:
+            instance = self.get_object()
+        except Service_master.DoesNotExist:
+            return Response(
+                {
+                    "message": "Service not found.",
+                    "status": False
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        return Response(
+            {
+                "message": "Service updated successfully.",
+                "data": serializer.data,
+                "status": True
+            },
+            status=status.HTTP_200_OK
+        )        
+
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['Admin Services']))
+class ServiceDeleteView(generics.DestroyAPIView):
+    queryset = Service_master.objects.filter(status__in=[1, 2]) 
+    serializer_class = ServiceSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def destroy(self, request, *args, **kwargs):
+        service_id = kwargs.get('id')
+        try:
+            instance = self.get_object()
+            instance.status = 3
+            instance.updated_by = getattr(request.user, 'fullname', request.user.username)
+            instance.save(update_fields=['status', 'updated_by', 'updated_at'])
+            return Response(
+                {
+                    "message": "Service deleted successfully.",
+                },
+                status=status.HTTP_200_OK
+            )
+
+        except Service_master.DoesNotExist:
+            logger.warning(f"Service ID {service_id} not found.")
+            return Response(
+                {
+                    "message": "Service not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        except Exception as e:
+            logger.error(f"Error deleting service ID {service_id}: {str(e)}")
+            return Response(
+                {
+                    "message": "An unexpected error occurred while deleting the service.",
+                    "error": str(e),
+                    "status": False
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
         
-        refresh = RefreshToken.for_user(user)
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Document Services']))
+class DocumentTypeCreateView(generics.CreateAPIView):
+    queryset = document_type.objects.all()
+    serializer_class = document_typeSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
-        vendor_data = VendorDataSerializer(user).data
-        vendor_data.update({
-            "access": str(refresh.access_token),
-            "refresh": str(refresh),
-            "device_info": device_info
-        })
+    def perform_create(self, serializer):
+        user_fullname = getattr(self.request.user, 'fullname', self.request.user.username)
+        serializer.save(created_by=user_fullname, updated_by=user_fullname)
+        document_type = serializer.validated_data.get('document_type')
+        if document_type.objects.filter(document_type__iexact=document_type, status__in=[1,2]).exists():
+         raise ValidationError({"document_type": f"'{document_type}' already exists and is active."})
+        logger.info(f"Document created by user {user_fullname} with data: {self.request.data}")
+    def create(self, request, *args, **kwargs):
+        response = super().create(request, *args, **kwargs)
+        return Response({"status": True, "message": "Document Type created successfully", "data": response.data}, status=status.HTTP_201_CREATED)
 
-        return Response({
-            "status": True,
-            "message": "Login successful",
-            "data": vendor_data
-        }, status=status.HTTP_200_OK)
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['Document Services']))
+class DocumentTypeListView(generics.ListAPIView):
+    serializer_class = document_typeSerializer
+    permission_classes = [AllowAny]
 
+    def get_queryset(self):
+        queryset = document_type.objects.filter(status=1)
+        doc_type = self.request.query_params.get('document_type', None)
+        if doc_type:
+            queryset = queryset.filter(document_type__icontains=doc_type)
+            if not queryset.exists():
+                logger.warning(f"{doc_type} no such document type exists")
+                raise ValidationError({"document_type": f"{doc_type} no such document type exists"})
+        logger.info(f"Document list fetched by user {self.request.user}")
+        return queryset
+    def list(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.get_queryset(), many=True)
+        return Response({"status": True, "message": "Document Types fetched successfully", "data": serializer.data}, status=status.HTTP_200_OK)
 
-@method_decorator(name='post', decorator=swagger_auto_schema(tags=['sendEmail- otp']))
-class RequestEmailOTPView(APIView):
-    permission_classes = []
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Document Services']))
+@method_decorator(name='patch', decorator=swagger_auto_schema(tags=['Document Services']))
+class DocumentTypeUpdateView(generics.UpdateAPIView):
+    queryset = document_type.objects.filter(status=1)
+    serializer_class = document_typeSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'pk'
 
-    def post(self, request):
-        serializer = RequestEmailOTPSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        email = serializer.validated_data.get('email')
-        masked_email = mask_email(email)
+    def perform_update(self, serializer):
+        user = self.request.user
+        data = serializer.validated_data
 
+        doc_type_name = data.get('document_type', None)
+        if doc_type_name and not doc_type_name.replace(' ', '').isalpha():
+            logger.warning(f"Invalid document_type name: {doc_type_name}")
+            raise ValidationError({"document_type": "Document type must contain only letters and spaces."})
+
+        updated_by = getattr(user, "fullname", user.username)
+        serializer.save(updated_by=updated_by)
+        logger.info(f"Document ID {self.get_object().id} updated by user {updated_by}")
+    def update(self, request, *args, **kwargs):
+        response = super().update(request, *args, **kwargs)
+        return Response({"status": True, "message": "Document Types updated successfully", "data": response.data}, status=status.HTTP_200_OK)
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['Document Services']))
+class DocumentTypeDeleteView(generics.DestroyAPIView):
+    queryset = document_type.objects.filter(status=1)
+    serializer_class = document_typeSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'pk'
+
+    def destroy(self, request, *args, **kwargs):
         try:
-            with transaction.atomic():
-                # Get or create verification record first
-                verification, created = EmailVerification.objects.get_or_create(email=email)
-
-                if verification.is_verified:
-                    return Response({
-                        "status": True,
-                        "message": "Email already verified.",
-                        "email": masked_email,
-                        "is_email_verified": True
-                    }, status=status.HTTP_200_OK)
-
-                 # Check if the user is temporarily blocked
-                remaining_block = verification._is_blocked()
-                if remaining_block:
-                    return Response({
-                        "status": False,
-                        "message": f"Too many failed attempts. Try again after {remaining_block} seconds."
-                    }, status=status.HTTP_403_FORBIDDEN)
-                
-                # Cooldown check (60 seconds)
-                if not verification.can_request_new_otp():
-                    return Response({
-                        "status": False,
-                        "message": "Please wait at least 60 seconds before requesting another OTP."
-                    }, status=status.HTTP_429_TOO_MANY_REQUESTS)
-
-                # generate and set OTP using model method
-                otp = generate_numeric_otp()
-                verification.set_otp(otp)
-
+            instance = self.get_object()
+            user = request.user
+            instance.status = 3  
+            instance.updated_by = getattr(user, "fullname", user.username)
+            instance.updated_at = timezone.now()
+            instance.save(update_fields=['status', 'updated_by', 'updated_at'])
+            logger.info(f"Document ID {instance.id} soft deleted by user {user}")
+            return Response({"status": True,"message": "Document deleted successfully."},status=status.HTTP_200_OK)
+        except document_type.DoesNotExist:
+            logger.warning(f"Document ID {kwargs.get('pk')} not found for delete")
+            return Response({"error": "Document not found"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
-            logger.exception("Error generating email OTP")
-            return Response({
-                "status": False,
-                "message": f"Failed to process OTP: {str(e)}"
-            }, status=status.HTTP_400_BAD_REQUEST)
+            logger.error(f"Error deleting document: {str(e)}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # send email OTP
-        email_sent = send_otp_email(email, otp)
-        return Response({
-            "status": True,
-            "message": f"OTP sent successfully to {masked_email}",
-            "email_sent": email_sent == 202
-        }, status=status.HTTP_200_OK)
 
-@method_decorator(name='post', decorator=swagger_auto_schema(tags=['sendPhone otp'])) 
-class RequestPhoneOTPView(APIView):
-    permission_classes = []
+#  ----------------------- ADMIN ARTICLE TYPE ----------------------
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Admin Article Types']))
+class ArticleTypeCreateView(generics.CreateAPIView):
+    queryset = Article_type.objects.filter(status=1)
+    serializer_class = ArticleTypeSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
-    def post(self, request):
-        serializer = RequestPhoneOTPSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        phone = serializer.validated_data.get('phone')
-        masked_phone = mask_phone(phone)
-
-        try:
-            with transaction.atomic():
-                # Get or create verification record first
-                verification, created = PhoneVerification.objects.get_or_create(phone=phone)
-
-                if verification.is_verified:
-                    return Response({
-                        "status": True,
-                        "message": "Phone verified Already.",
-                        "phone": masked_phone,
-                        "is_email_verified": True
-                    }, status=status.HTTP_200_OK)
-
-                # Check if the user is temporarily blocked
-                remaining_block = verification._is_blocked()
-                if remaining_block:
-                    return Response({
-                        "status": False,
-                        "message": f"Too many failed attempts. Try again after {remaining_block} seconds."
-                    }, status=status.HTTP_403_FORBIDDEN)
-                
-                # Cooldown check (60 seconds)
-                if not verification.can_request_new_otp():
-                    return Response({
-                        "status": False,
-                        "message": "Please wait at least 60 seconds before requesting another OTP."
-                    }, status=status.HTTP_429_TOO_MANY_REQUESTS)
-
-                # Generate and set OTP
-                otp = str(123456) #generate_numeric_otp()
-                verification.set_otp(otp)
-
-        except Exception as e:
-            logger.exception("Error generating phone OTP")
-            return Response({
-                "status": False,
-                "message": f"Failed to process OTP: {str(e)}"
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Send SMS OTP
-        sms_sent = True #send_otp_sms(phone, otp)
-
-        return Response({
-            "status": True,
-            "message": f"OTP sent successfully to {masked_phone}",
-            "sms_sent": sms_sent
-        }, status=status.HTTP_200_OK)
-    
-
-@method_decorator(name='post', decorator=swagger_auto_schema(tags=['VerifyOTP - Email']))
-class VerifyEmailOTPView(APIView):
-    permission_classes = []
-
-    def post(self, request):
-        serializer = VerifyEmailOTPSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        email = serializer.validated_data['email']
-        raw_otp = serializer.validated_data['otp']
-        masked_email = mask_email(email)
-
-        verification = get_object_or_404(EmailVerification, email=email)
-
-        if verification.is_verified:
-            return Response({
-                "status": True,
-                "message": "Email already verified.",
-                "email": masked_email,
-                "is_email_verified": True
-            }, status=status.HTTP_200_OK)
-
-        remaining_block = verification._is_blocked()
-        if remaining_block:
-            return Response({
-                "status": False,
-                "message": f"Too many failed attempts. Try again after {remaining_block} seconds."
-                }, status=status.HTTP_403_FORBIDDEN)
-        
-        # validate OTP
-        if not verification.check_otp(raw_otp):
-            verification.mark_attempt()
-            return Response({
-                "status": False,
-                "message": "Invalid or expired OTP."
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # mark email as verified
-        with transaction.atomic():
-            verified = verification.mark_verified()
-
-        return Response({
-            "status": True,
-            "message": "Email Verified successfully.",
-            "email": masked_email,
-            "is_email_verified": verified
-        }, status=status.HTTP_200_OK)
-    
-    
-@method_decorator(name='post', decorator=swagger_auto_schema(tags=['VerifyOTP - Phone']))
-class VerifyPhoneOTPView(APIView):
-    permission_classes = []
-
-    def post(self, request):
-        serializer = VerifyPhoneOTPSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        phone = serializer.validated_data['phone']
-        otp = serializer.validated_data['otp']  
-        masked_phone = mask_phone(phone)
-
-        verification = get_object_or_404(PhoneVerification, phone=phone)
-
-        if verification.is_verified:
-            return Response({
-                "status": True,
-                "message": "Contact number already verified.",
-                "phone": masked_phone,
-                "is_phone_verified": True
-            }, status=status.HTTP_200_OK)
-
-        #check if temporary blocked
-        remaining_block = verification._is_blocked()
-        if remaining_block:
-            return Response({
-                "status": False,
-                "message": f"Too many failed attempts. Try again after {remaining_block} seconds."
-            }, status=status.HTTP_403_FORBIDDEN)
-
-        #validate OTP
-        if not verification.check_otp(otp):
-            verification.mark_attempt()
-            return Response({
-                "status": False,
-                "message": "Invalid or Expired OTP."
-            },
-            status=status.HTTP_400_BAD_REQUEST)
-        
-        #mark phone as verified
-        with transaction.atomic():
-            verified = verification.mark_verified()
+    def perform_create(self, serializer):
+        data = serializer.validated_data
+        article_type = data.get('article_type', None) 
+        if article_type and not article_type.replace(' ', '').isalpha():
+            raise ValidationError({"article_type": "Article Type must contain only letters and spaces."})
             
-        return Response({
-            "status": True,
-            "message": "Phone verified successfully.",
-            "Phone:": masked_phone,
-            "is_phone_verified": verified,
-        }, status=status.HTTP_200_OK)
+        user_fullname = getattr(self.request.user, 'fullname', self.request.user.username)
+        article_type = serializer.validated_data.get('article_type')
+        if Article_type.objects.filter(article_type__iexact=article_type, status__in=[1,2]).exists():
+         raise ValidationError({"article_type": f"'{article_type}' already exists and is active."})
+        serializer.save(created_by=user_fullname, updated_by=user_fullname)
+    def create(self, request, *args, **kwargs):
+        response = super().create(request, *args, **kwargs)
+        return Response({"status": True, "message": "Article type created successfully", "data": response.data}, status=status.HTTP_201_CREATED)
 
-class VendorDocumentUploadAPIView(APIView):
-    permission_classes = (AllowAny,)
-    authentication_classes = (OAuth2Authentication, JWTAuthentication)
+
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['Admin Article Types']))
+class ArticleTypeListView(generics.ListAPIView):
+    serializer_class = ArticleTypeSerializer
+    permission_classes = [AllowAny]
+    # authentication_classes = [JWTAuthentication]
+    # permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = Article_type.objects.filter(status=1).order_by('-id')
+        article_type = self.request.query_params.get('article_type', None)
+        if article_type:
+            queryset = queryset.filter(article_type__icontains=article_type)
+            if not queryset.exists():
+                logger.warning(f"{article_type} no such article type exists")
+                raise ValidationError({"article_type": f"{article_type} no such article type exists"})
+        return queryset
+    def list(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.get_queryset(), many=True)
+        return Response({"status": True, "message": "Article Types fetched successfully", "data": serializer.data}, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Admin Article Types']))
+@method_decorator(name='patch', decorator=swagger_auto_schema(tags=['Admin Article Types']))
+class ArticleTypeUpdateView(generics.UpdateAPIView):
+    queryset = Article_type.objects.filter(status=1)
+    serializer_class = ArticleTypeSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        data = serializer.validated_data
+        article_type = data.get('article_type', None)
+
+        if article_type and not article_type.replace(' ', '').isalpha():
+            logger.warning(f"Invalid article type: {article_type}")
+            raise ValidationError({"article_type": "article type must contain only letters and spaces."})
+
+        updated_by = getattr(user, "fullname", user.username)
+        serializer.save(updated_by=updated_by)
+    def update(self, request, *args, **kwargs):
+        response = super().update(request, *args, **kwargs)
+        return Response({"status": True, "message": "Article Types updated successfully", "data": response.data}, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['Admin Article Types']))
+class ArticleTypeDeleteView(generics.DestroyAPIView):
+    queryset = Article_type.objects.filter(status=1)
+    serializer_class = ArticleTypeSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            instance = self.get_object()
+            user = request.user
+            instance.status = 3
+            instance.updated_by = getattr(user, "fullname", user.username)
+            instance.updated_at = timezone.now()
+            instance.save(update_fields=['status', 'updated_by', 'updated_at'])
+            return Response({"status": True,"message": "Article Type deleted successfully."},status=status.HTTP_200_OK)
+        except Article_type.DoesNotExist:
+            logger.warning(f"Article type ID {kwargs.get('id')} not found")
+            return Response({"error": "article type not found"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Error deleting article type: {str(e)}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+#  -------------------- ADMIN DELIVERY OPTION ----------------------------
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Admin Delivery Option']))
+class DeliveryOptionCreateView(generics.CreateAPIView):
+    queryset = Delivery_option.objects.all()
+    serializer_class = DeliveryOptionSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        data = serializer.validated_data
+        delivery_option = data.get('delivery_option', None) 
+        if delivery_option and not delivery_option.replace(' ', '').isalpha():
+            raise ValidationError({"delivery_option": "Delivery Option must contain only letters and spaces."})
+            
+        user_fullname = getattr(self.request.user, 'fullname', self.request.user.username)
+        delivery_option = serializer.validated_data.get('delivery_option')
+        if Delivery_option.objects.filter(delivery_option__iexact=delivery_option, status__in=[1,2]).exists():
+         raise ValidationError({"delivery_option": f"'{delivery_option}' already exists and is active."})
+        serializer.save(created_by=user_fullname, updated_by=user_fullname)
+    def create(self, request, *args, **kwargs):
+        response = super().create(request, *args, **kwargs)
+        return Response({"status": True, "message": "Delivery Option created successfully", "data": response.data}, status=status.HTTP_201_CREATED)
+
+
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['Admin Delivery Option']))
+class DeliveryOptionListView(generics.ListAPIView):
+    serializer_class = DeliveryOptionSerializer
+    permission_classes = [AllowAny]
+    # authentication_classes = [JWTAuthentication]
+    # permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = Delivery_option.objects.filter(status=1).order_by('-id')
+        delivery_option = self.request.query_params.get('delivery_option', None)
+        if delivery_option:
+            queryset = queryset.filter(delivery_option__icontains=delivery_option)
+            if not queryset.exists():
+                logger.warning(f"{delivery_option} no such delivery option exists")
+                raise ValidationError({"delivery_option": f"{delivery_option} no such delivery option exists"})
+        return queryset
+    def list(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.get_queryset(), many=True)
+        return Response({"status": True, "message": "Delivery Options fetched successfully", "data": serializer.data}, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Admin Delivery Option']))
+@method_decorator(name='patch', decorator=swagger_auto_schema(tags=['Admin Delivery Option']))
+class DeliveryOptionUpdateView(generics.UpdateAPIView):
+    queryset = Delivery_option.objects.filter(status=1)
+    serializer_class = DeliveryOptionSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        data = serializer.validated_data
+        delivery_option = data.get('delivery_option', None)
+
+        if delivery_option and not delivery_option.replace(' ', '').isalpha():
+            logger.warning(f"Invalid delivery option: {delivery_option}")
+            raise ValidationError({"delivery_option": "delivery option must contain only letters and spaces."})
+
+        updated_by = getattr(user, "fullname", user.username)
+        serializer.save(updated_by=updated_by)
+
+    def update(self, request, *args, **kwargs):
+        response = super().update(request, *args, **kwargs)
+        return Response({"status": True, "message": "Delivery Options updated successfully", "data": response.data}, status=status.HTTP_200_OK)
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['Admin Delivery Option']))
+class DeliveryOptionDeleteView(generics.DestroyAPIView):
+    queryset = Delivery_option.objects.filter(status=1)
+    serializer_class = DeliveryOptionSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            instance = self.get_object()
+            user = request.user
+            instance.status = 3
+            instance.updated_by = getattr(user, "fullname", user.username)
+            instance.updated_at = timezone.now()
+            instance.save(update_fields=['status', 'updated_by', 'updated_at'])
+            return Response({"status": True,"message": "Delivery Option deleted successfully."},status=status.HTTP_200_OK)
+        except Delivery_option.DoesNotExist:
+            logger.warning(f"Delivery Option ID {kwargs.get('id')} not found")
+            return Response({"error": "delivery option not found"}, status=404)
+        except Exception as e:
+            logger.error(f"Error deleting delivery option: {str(e)}")
+            return Response({"error": str(e)}, status=500)
+
+
+
+# ----------------------- ADMIN BEST DEAL ------------------------------
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Admin Best Deal']))
+class BestDealCreateView(generics.CreateAPIView):
+    queryset = Best_deal.objects.filter(status=1)
+    serializer_class = BestDealSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        data = serializer.validated_data
+        deal_name = data.get('deal_name', None) 
+        if deal_name and not deal_name.replace(' ', '').isalpha():
+            raise ValidationError({"deal_name": "Deal Name must contain only letters and spaces."})
+            
+        user_fullname = getattr(self.request.user, 'fullname', self.request.user.username)
+        deal_name = serializer.validated_data.get('deal_name')
+        if Best_deal.objects.filter(deal_name__iexact=deal_name, status__in=[1,2]).exists():
+         raise ValidationError({"deal_name": f"'{deal_name}' already exists and is active."})
+        serializer.save(created_by=user_fullname, updated_by=user_fullname)
+
+    def create(self, request, *args, **kwargs):
+        response = super().create(request, *args, **kwargs)
+        return Response({"status": True, "message": "Best Deal created successfully", "data": response.data}, status=status.HTTP_201_CREATED)
+
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['Admin Best Deal']))
+class BestDealListView(generics.ListAPIView):
+    serializer_class = BestDealSerializer
+    permission_classes = [AllowAny]
+    # authentication_classes = [JWTAuthentication]
+    # permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = Best_deal.objects.filter(status=1).order_by('-id')
+        deal_name = self.request.query_params.get('deal_name', None)
+        if deal_name:
+            queryset = queryset.filter(deal_name__icontains=deal_name)
+            if not queryset.exists():
+                logger.warning(f"{deal_name} no such deal name exists")
+                raise ValidationError({"deal_name": f"{deal_name} no such deal name exists"})
+        return queryset
+    def list(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.get_queryset(), many=True)
+        return Response({"status": True, "message": "Best Deal fetched successfully", "data": serializer.data}, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Admin Best Deal']))
+@method_decorator(name='patch', decorator=swagger_auto_schema(tags=['Admin Best Deal']))
+class BestDealUpdateView(generics.UpdateAPIView):
+    queryset = Best_deal.objects.filter(status=1)
+    serializer_class = BestDealSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        data = serializer.validated_data
+        deal_name = data.get('deal_name', None)
+
+        if deal_name and not deal_name.replace(' ', '').isalpha():
+            logger.warning(f"Invalid Deal name: {deal_name}")
+            raise ValidationError({"deal_name": "deal name must contain only letters and spaces."})
+
+        updated_by = getattr(user, "fullname", user.username)
+        serializer.save(updated_by=updated_by)
+    def update(self, request, *args, **kwargs):
+        response = super().update(request, *args, **kwargs)
+        return Response({"status": True, "message": "Best Deal updated successfully", "data": response.data}, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['Admin Best Deal']))
+class BestDealDeleteView(generics.DestroyAPIView):
+    queryset = Best_deal.objects.filter(status=1)
+    serializer_class = BestDealSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            instance = self.get_object()
+            user = request.user
+            instance.status = 3
+            instance.updated_by = getattr(user, "fullname", user.username)
+            instance.updated_at = timezone.now()
+            instance.save(update_fields=['status', 'updated_by', 'updated_at'])
+            return Response({"status": True,"message": "Deal Name deleted successfully."},status=status.HTTP_200_OK)
+        except Best_deal.DoesNotExist:
+            logger.warning(f"Deal ID {kwargs.get('id')} not found")
+            return Response({"error": "deal name not found"}, status=404)
+        except Exception as e:
+            logger.error(f"Error deleting deal name: {str(e)}")
+            return Response({"error": str(e)}, status=500)
+
+
+# --------------------------- ADMIN APP VERSION ---------------------
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Admin App Version']))
+class AppVersionCreateView(generics.CreateAPIView):
+    queryset = App_version.objects.filter(status=1)
+    serializer_class = AppVersionSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        data = serializer.validated_data
+        app_version = data.get('app_version', None)  
+        user_fullname = getattr(self.request.user, 'fullname', self.request.user.username)
+        app_version = serializer.validated_data.get('app_version')
+        if App_version.objects.filter(app_version__iexact=app_version, status__in=[1,2]).exists():
+         raise ValidationError({"app_version": f"'{app_version}' already exists and is active."})
+        serializer.save(created_by=user_fullname, updated_by=user_fullname)
+
+    def create(self, request, *args, **kwargs):
+        response = super().create(request, *args, **kwargs)
+        return Response({"status": True, "message": "App version created successfully", "data": response.data}, status=status.HTTP_201_CREATED)
+
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['Admin App Version']))
+class AppVersionListView(generics.ListAPIView):
+    serializer_class = AppVersionSerializer
+    permission_classes = [AllowAny]
+    # authentication_classes = [JWTAuthentication]
+    # permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = App_version.objects.filter(status=1).order_by('-id')
+        app_version = self.request.query_params.get('app_version', None)
+        if app_version:
+            queryset = queryset.filter(app_version__icontains=app_version)
+            if not queryset.exists():
+                logger.warning(f"{app_version} no such app version exists")
+                raise ValidationError({"app_version": f"{app_version} no such app version exists"})
+        return queryset
+    def list(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.get_queryset(), many=True)
+        return Response({"status": True, "message": "App Version fetched successfully", "data": serializer.data}, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Admin App Version']))
+@method_decorator(name='patch', decorator=swagger_auto_schema(tags=['Admin App Version']))
+class AppVersionUpdateView(generics.UpdateAPIView):
+    queryset = App_version.objects.filter(status=1)
+    serializer_class = AppVersionSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        data = serializer.validated_data
+        app_version = data.get('app_version', None)
+        updated_by = getattr(user, "fullname", user.username)
+        serializer.save(updated_by=updated_by)
+    def update(self, request, *args, **kwargs):
+        response = super().update(request, *args, **kwargs)
+        return Response({"status": True, "message": "App Version updated successfully", "data": response.data}, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['Admin App Version']))
+class AppVersionDeleteView(generics.DestroyAPIView):
+    queryset = App_version.objects.filter(status=1)
+    serializer_class = AppVersionSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            instance = self.get_object()
+            user = request.user
+            instance.status = 3
+            instance.updated_by = getattr(user, "fullname", user.username)
+            instance.updated_at = timezone.now()
+            instance.save(update_fields=['status', 'updated_by', 'updated_at'])
+            return Response({"status": True,"message": "App Version deleted successfully."},status=status.HTTP_200_OK)
+        except App_version.DoesNotExist:
+            logger.warning(f"Version ID {kwargs.get('id')} not found")
+            return Response({"error": "app version not found"}, status=404)
+        except Exception as e:
+            logger.error(f"Error deleting app version: {str(e)}")
+            return Response({"error": str(e)}, status=500)
+
+
+# -------------------------- ADMIN Base API ----------------------------------
+
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['Admin Base API']))
+class BaseAPIView(APIView):
+    permission_classes = [AllowAny]
+    # authentication_classes = [JWTAuthentication]
+    # permission_classes = [IsAuthenticated]
+    def get(self, request):
+        try:
+            # ------------------- Base Data -------------------
+            appVersion = AppVersionSerializer(App_version.objects.filter(status=1), many=True).data
+            states = StateSerializer(State_master.objects.filter(status=1), many=True).data
+            categories = ServiceSerializer(Service_master.objects.filter(status=1), many=True).data
+            documents = document_typeSerializer(document_type.objects.filter(status=1), many=True).data
+            company_types = CompanyTypeMaster.objects.filter(status__status_type='Active')
+
+            # ------------------- Onboarding -------------------
+            gif = OnboardingScreens.objects.filter(status=1, type=1).order_by("-created_at").first()
+            flash_screens = OnboardingScreens.objects.filter(status=1, type=2).order_by("order")[:3]
+
+            onboarding_data = {
+                "gif": OnboardingScreenSerializer(gif).data if gif else None,
+                "flash_screens": OnboardingScreenSerializer(flash_screens, many=True).data,
+            }
+
+            # ------------------- Add Cities under States -------------------
+            for state in states:
+                state_id = state.get('id')
+                cities = City_master.objects.filter(state_id=state_id, status=1).values('id', 'city_name', 'status')
+                state['cities'] = list(cities)
+
+            # ------------------- Company Types with Documents -------------------
+            company_data = []
+            for company in company_types:
+                mappings = CompanyDocumentMapping.objects.filter(company_type=company, status=1).select_related('document_type')
+                mapped_docs = [
+                    {
+                        'id': m.document_type.id,
+                        'document_type': m.document_type.document_type
+                    } for m in mappings
+                ]
+                company_data.append({
+                    'id': company.id,
+                    'company_type': company.company_type,
+                    'documents': mapped_docs
+                })
+
+            # ------------------- NEW: GST & Best Suited For -------------------
+            gst_list = GstMasterSerializer(
+                GstMaster.objects.filter(status__status_type='Active').order_by('gst_percentage'),
+                many=True
+            ).data
+
+            best_suited_for_list = BestSuitedForSerializer(
+                Best_suited_for.objects.filter(status=1).order_by('name'),
+                many=True
+            ).data
+
+            # ------------------- ✅ Terms & Conditions -------------------
+            terms_conditions = TermsConditionSerializer(
+                Terms_and_condition_master.objects.filter(status=1).order_by('-created_at'),
+                many=True
+            ).data
+
+
+            # ------------------- Final Response -------------------
+            data = {
+                "status": True,
+                "message": "Base API Data fetched successfully",
+                "data": {
+                    "appVersion": appVersion,
+                    "states": states,
+                    "categories": categories,
+                    "company_type_documents": company_data,
+                    "gst": gst_list,
+                    "best_suited_for": best_suited_for_list,
+                    "terms_and_conditions": terms_conditions,  
+                    "onboarding": onboarding_data,
+                }
+            }
+            return Response(data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Error in BaseAPIView: {str(e)}")
+            return Response({
+                "status": False,
+                "message": "Failed to fetch Base API Data",
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+# ---------------- Helper function ----------------
+def get_status(status_type):
+    try:
+        return StatusMaster.objects.get(status_type=status_type)
+    except StatusMaster.DoesNotExist:
+        logger.error(f"Status '{status_type}' does not exist.")
+        raise ValidationError({"status": f"Status '{status_type}' not found."})
+
+# ------------------ CAKES ------------------
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['cakes']))
+class CakeCreateView(generics.CreateAPIView):
+    queryset = CakeMaster.objects.all()
+    serializer_class = CakeMasterSerializer
+
+    def perform_create(self, serializer):
+        active_status = get_status('Active')
+        serializer.save(status=active_status)
+        logger.info("New cake created successfully")
+
+
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['cakes']))
+class CakeListView(generics.ListAPIView):
+    serializer_class = CakeMasterSerializer
+
+    def get_queryset(self):
+        active_status = get_status('Active')
+        queryset = CakeMaster.objects.filter(status=active_status).order_by('-id')
+
+        flavor = self.request.query_params.get('flavor')
+        shape = self.request.query_params.get('shape_name')
+        cake_type = self.request.query_params.get('cake_type')
+
+        if flavor:
+            queryset = queryset.filter(flavor__iexact=flavor)
+        if shape:
+            queryset = queryset.filter(shape_name__iexact=shape)
+        if cake_type:
+            queryset = queryset.filter(cake_type__iexact=cake_type)
+
+        if not queryset.exists():
+            logger.warning("No cakes found for the applied filters")
+            raise ValidationError({"detail": "No cakes found for the given filters"})
+        return queryset
+
+
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['cakes']))
+@method_decorator(name='patch', decorator=swagger_auto_schema(tags=['cakes']))
+class CakeUpdateView(generics.UpdateAPIView):
+    queryset = CakeMaster.objects.all()
+    serializer_class = CakeMasterSerializer
+    lookup_field = 'id'
+
+    def perform_update(self, serializer):
+        serializer.save(updated_at=timezone.now())
+        logger.info(f"Cake ID {self.get_object().id} updated successfully")
+
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['cakes']))
+class CakeDeleteView(generics.DestroyAPIView):
+    queryset = CakeMaster.objects.all()
+    serializer_class = CakeMasterSerializer
+    lookup_field = 'id'
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        deleted_status = get_status('Deleted')
+        instance.status = deleted_status
+        instance.save(update_fields=['status', 'updated_at'])
+        logger.info(f"Cake ID {instance.id} deleted successfully")
+        return Response({"message": "Cake deleted successfully"}, status=status.HTTP_200_OK)
+
+# ------------------ COMPANY TYPE ------------------
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['company-type']))
+class CompanyTypeCreateView(generics.CreateAPIView):
+    queryset = CompanyTypeMaster.objects.all()
+    serializer_class = CompanyTypeMasterSerializer
+
+    def perform_create(self, serializer):
+        name = self.request.data.get('company_type')
+        active_status = get_status('Active')
+        if CompanyTypeMaster.objects.filter(company_type=name, status=active_status).exists():
+            raise ValidationError({"company_type": "This company type already exists"})
+        serializer.save(status=active_status)
+
+
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['company-type']))
+class CompanyTypeListView(generics.ListAPIView):
+    serializer_class = CompanyTypeMasterSerializer
+    permission_classes = [AllowAny]
+    # authentication_classes = [JWTAuthentication]
+    # permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        active_status = get_status('Active')
+        return CompanyTypeMaster.objects.filter(status=active_status).order_by('-id')
+
+
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['company-type']))
+@method_decorator(name='patch', decorator=swagger_auto_schema(tags=['company-type']))
+class CompanyTypeUpdateView(generics.UpdateAPIView):
+    queryset = CompanyTypeMaster.objects.all()
+    serializer_class = CompanyTypeMasterSerializer
+    lookup_field = 'id'
+
+    def perform_update(self, serializer):
+        serializer.save(updated_at=timezone.now())
+
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['company-type']))
+class CompanyTypeDeleteView(generics.DestroyAPIView):
+    queryset = CompanyTypeMaster.objects.all()
+    serializer_class = CompanyTypeMasterSerializer
+    lookup_field = 'id'
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        deleted_status = get_status('Deleted')
+        instance.status = deleted_status
+        instance.save(update_fields=['status', 'updated_at'])
+        return Response({"message": "Company type deleted successfully"}, status=status.HTTP_200_OK)
+
+# ------------------ VENUE TYPE ------------------
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['venue-type']))
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['venue-type']))
+class VenueTypeListCreateView(generics.ListCreateAPIView):
+    serializer_class = VenueTypeMasterSerializer
+
+    def get_queryset(self):
+        active_status = get_status('Active')
+        return VenueTypeMaster.objects.filter(status=active_status).order_by('-id')
+
+    def perform_create(self, serializer):
+        name = self.request.data.get('venue_type')
+        active_status = get_status('Active')
+        if VenueTypeMaster.objects.filter(venue_type=name, status=active_status).exists():
+            raise ValidationError({"venue_type": "This venue type already exists"})
+        serializer.save(status=active_status)
+
+
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['venue-type']))
+@method_decorator(name='patch', decorator=swagger_auto_schema(tags=['venue-type']))
+class VenueTypeUpdateView(generics.UpdateAPIView):
+    queryset = VenueTypeMaster.objects.all()
+    serializer_class = VenueTypeMasterSerializer
+    lookup_field = 'id'
+
+    def perform_update(self, serializer):
+        serializer.save(updated_at=timezone.now())
+
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['venue-type']))
+class VenueTypeDeleteView(generics.DestroyAPIView):
+    queryset = VenueTypeMaster.objects.all()
+    serializer_class = VenueTypeMasterSerializer
+    lookup_field = 'id'
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        deleted_status = get_status('Deleted')
+        instance.status = deleted_status
+        instance.save(update_fields=['status', 'updated_at'])
+        return Response({"message": "Venue type deleted successfully"}, status=status.HTTP_200_OK)
+
+# ------------------ OPPVENUZ CHOICE ------------------
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['OPPVENUZ CHOICE']))
+class OppvenuzChoiceCreateView(APIView):
+    def post(self, request):
+        serializer = OppvenuzChoiceMasterSerializer(data=request.data)
+        if serializer.is_valid():
+            active_status = get_status('Active')
+            serializer.save(status=active_status)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['OPPVENUZ CHOICE']))
+class OppvenuzChoiceListView(APIView):
+    def get(self, request, pk=None):
+        if pk:
+            obj = get_object_or_404(OppvenuzChoiceMaster, pk=pk)
+            serializer = OppvenuzChoiceMasterSerializer(obj)
+            return Response(serializer.data)
+        active_status = get_status('Active')
+        objs = OppvenuzChoiceMaster.objects.filter(status=active_status).order_by('-id')
+        serializer = OppvenuzChoiceMasterSerializer(objs, many=True)
+        return Response(serializer.data)
+
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['OPPVENUZ CHOICE']))
+@method_decorator(name='patch', decorator=swagger_auto_schema(tags=['OPPVENUZ CHOICE']))
+class OppvenuzChoiceUpdateView(APIView):
+    def put(self, request, pk):
+        obj = get_object_or_404(OppvenuzChoiceMaster, pk=pk)
+        serializer = OppvenuzChoiceMasterSerializer(obj, data=request.data)
+        if serializer.is_valid():
+            serializer.save(updated_at=timezone.now())
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def patch(self, request, pk):
+        obj = get_object_or_404(OppvenuzChoiceMaster, pk=pk)
+        serializer = OppvenuzChoiceMasterSerializer(obj, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save(updated_at=timezone.now())
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['OPPVENUZ CHOICE']))
+class OppvenuzChoiceDeleteView(APIView):
+    def delete(self, request, pk):
+        obj = get_object_or_404(OppvenuzChoiceMaster, pk=pk)
+        deleted_status = get_status('Deleted')
+        obj.status = deleted_status
+        obj.save(update_fields=['status', 'updated_at'])
+        return Response({"message": "Choice deleted successfully"}, status=status.HTTP_200_OK)
+
+# ------------------ GST ------------------
+
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['GST']))
+class GstMasterCreateView(generics.CreateAPIView):
+    queryset = GstMaster.objects.all()
+    serializer_class = GstMasterSerializer
+
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['GST']))
+class GstMasterListView(generics.ListAPIView):
+    serializer_class = GstMasterSerializer
+
+    def get_queryset(self):
+        return GstMaster.objects.filter(status__status_type__in=['Active', 'Inactive']).order_by('-id')
+
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['GST']))
+@method_decorator(name='patch', decorator=swagger_auto_schema(tags=['GST']))
+class GstMasterUpdateView(generics.UpdateAPIView):
+    queryset = GstMaster.objects.all()
+    serializer_class = GstMasterSerializer
+    lookup_field = 'pk'
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['GST']))
+class GstMasterDeleteView(generics.DestroyAPIView):
+    queryset = GstMaster.objects.all()
+    serializer_class = GstMasterSerializer
+    lookup_field = 'pk'
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        deleted_status = get_status('Deleted')
+        instance.status = deleted_status
+        instance.save(update_fields=['status', 'updated_at'])
+        return Response({"message": "GST deleted successfully"}, status=status.HTTP_200_OK)
+    
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Social Media'])) 
+class SocialMediaUploadView(generics.CreateAPIView):
+    queryset = Social_media_master.objects.all()
+    serializer_class = SocialMediaSerializer
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
 
     def post(self, request, *args, **kwargs):
+        media_name = request.data.get("media_name")
+        if media_name:
+            media_name = media_name.strip().strip('"')
+
+        image = request.FILES.get("media_image")
+
+        if not media_name or not image:
+            logger.warning("Missing media_name or media_image in upload request.")
+            return Response(
+                {
+                    "message": "Both media_name and media_image are required.",
+                    "status": False
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if Social_media_master.objects.filter(media_name__iexact=media_name, status__in=[1,2]).exists():
+            return Response(
+                {"message": f"Social media '{media_name}' already exists.", "status": False},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        max_size_mb = 5
+        if image.size > max_size_mb * 1024 * 1024:
+            logger.warning(f"File too large: {image.size / (1024 * 1024):.2f} MB")
+            return Response(
+                {
+                    "message": f"Maximum file size is {max_size_mb} MB.",
+                    "status": False
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        valid_extensions = (".png", ".jpg", ".jpeg", ".svg", ".webp")
+        ext = image.name.lower().rsplit(".", 1)[-1]
+        if f".{ext}" not in valid_extensions:
+            logger.warning(f"Unsupported file extension: .{ext}")
+            return Response(
+                {
+                    "message": f"Unsupported file extension. Allowed: {', '.join(valid_extensions)}",
+                    "status": False
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        s3 = boto3.client(
+            "s3",
+            aws_access_key_id=config("s3AccessKey"),
+            aws_secret_access_key=config("s3Secret"),
+        )
+
+        filename = f"{image.name}"
+        key = f"social_media/{filename}"
+        bucket = config("S3_BUCKET_NAME")
+
         try:
-            phone = request.data.get("vendor_business_no")
-            document_type = request.data.get("document_type")
-            section_type = request.data.get("section_type")
-            image = request.FILES.get("file")
-            company_type_id = request.data.get("company_type")
+            s3.upload_fileobj(
+                Fileobj=image,
+                Bucket=bucket,
+                Key=key,
+                ExtraArgs={"ACL": "public-read", "ContentType": image.content_type},
+            )
+        except Exception as e:
+            logger.error(f"Failed to upload image to S3: {str(e)}")
+            return Response(
+                {
+                    "message": "Failed to upload image.",
+                    "error": str(e),
+                    "status": False
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
-            if not all([phone, document_type, image, company_type_id]):
-                return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
+        media_url = f"https://{bucket}.s3.amazonaws.com/{key}"
 
-            # Step 1: Get verification entry using phone
-            verification = PhoneVerification.objects.filter(phone=phone, is_verified=True).first()
-            if not verification:
-                return Response({"error": "Phone number not verified"}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = self.get_serializer(data={
+            "media_name": media_name,
+            "media_image": media_url
+        })
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
 
-            # Step 2: Get CompanyTypeMaster instance using id
-            try:
-                company_type_obj = CompanyTypeMaster.objects.get(id=company_type_id)
-            except CompanyTypeMaster.DoesNotExist:
-                return Response({"error": "Invalid company_type id"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {
+                "message": "Social media uploaded successfully.",
+                "data": serializer.data,
+                "status": True
+            },
+            status=status.HTTP_201_CREATED
+        )
 
-            # Step 3: Delete expired TEMP docs
-            now = timezone.now()
-            VendorDocument.objects.filter(status='TEMP', expires_at__lt=now).update(status='DELETED')
+    def perform_create(self, serializer):
+        user_fullname = getattr(self.request.user, 'fullname', self.request.user.username)
+        serializer.save(
+            created_by=user_fullname,
+            updated_by=user_fullname
+        )
 
-            # Step 4: Upload to S3
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['Social Media']))
+class SocialMediaList(generics.ListAPIView):
+    queryset = Social_media_master.objects.all()
+    serializer_class = SocialMediaSerializer
+    permission_classes = [AllowAny]
+
+    def get_queryset(self):
+        return Social_media_master.objects.filter(status__in=[1,2]).order_by("media_name")
+
+    def list(self, request, *args, **kwargs):
+        try:
+            queryset = self.get_queryset()
+            serializer = self.get_serializer(queryset, many=True)
+
+            if not queryset.exists():
+                return Response(
+                    {
+                        "message": "No social media records found.",
+                        "data": [],
+                        "status": True
+                    },
+                    status=status.HTTP_200_OK
+                )
+
+            return Response(
+                {
+                    "message": "Social media list fetched successfully.",
+                    "data": serializer.data,
+                    "status": True
+                },
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            logger.error(f"Error fetching social media list: {str(e)}")
+            return Response(
+                {
+                    "message": "Failed to fetch social media list.",
+                    "error": str(e),
+                    "status": False
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Social Media']))
+@method_decorator(name='patch', decorator=swagger_auto_schema(tags=['Social Media']))
+class SocialMediaUpdateView(generics.UpdateAPIView):
+    serializer_class = SocialMediaSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    lookup_field = 'id'
+
+    def get_queryset(self):
+        # Only allow updates for objects with status 1 or 2
+        return Social_media_master.objects.filter(status__in=[1, 2])
+
+    def perform_update(self, serializer):
+        # Add updated_by
+        data_to_save = {"updated_by": getattr(self.request.user, 'fullname', self.request.user.username)}
+
+        # Handle S3 upload
+        media_file = self.request.FILES.get("media_image")
+        if media_file:
             s3 = boto3.client(
                 "s3",
                 aws_access_key_id=config("s3AccessKey"),
                 aws_secret_access_key=config("s3Secret"),
             )
             bucket = config("S3_BUCKET_NAME")
+            instance = self.get_object()  # current instance
 
-            # Generate unique filename
-            file_ext = os.path.splitext(image.name)[1] 
-            unique_name = f"{uuid.uuid4().hex}{file_ext}"  
-            key = f"vendor_documents/{phone}/{unique_name}"
+            # Delete old file if exists
+            old_url = getattr(instance, 'media_image', None)
+            if old_url and bucket in old_url:
+                old_key = old_url.split(f"https://{bucket}.s3.amazonaws.com/")[-1]
+                try:
+                    s3.delete_object(Bucket=bucket, Key=old_key)
+                except Exception as e:
+                    logger.warning(f"Failed to delete old image: {str(e)}")
 
-            s3.upload_fileobj(image, bucket, key, ExtraArgs={"ACL": "public-read"})
-            document_url = f"https://{bucket}.s3.amazonaws.com/{key}"
+            # Upload new file
+            new_key = f"social_media/{media_file.name}"
+            try:
+                s3.upload_fileobj(
+                    media_file,
+                    bucket,
+                    new_key,
+                    ExtraArgs={"ACL": "public-read", "ContentType": media_file.content_type},
+                )
+                new_url = f"https://{bucket}.s3.amazonaws.com/{new_key}"
+                data_to_save["media_image"] = new_url
+            except Exception as e:
+                logger.error(f"Failed to upload new image: {str(e)}")
+                raise serializer.ValidationError(f"Failed to upload image: {str(e)}")
 
-            # Step 5: Save in DB
-            doc = VendorDocument.objects.create(
-                verification=verification,
-                company_type=company_type_obj,
-                document_type=document_type,
-                document_url=document_url,
-                status="TEMP",
-                vendor_business_no=phone,
-                expires_at=timezone.now() + timedelta(hours=1),
-            )
+        serializer.save(**data_to_save)
 
-            serializer = VendorDocumentSerializer(doc)
-            return Response({
-                "message": f"{document_type} uploaded successfully.",
-                "document": serializer.data
-            }, status=status.HTTP_201_CREATED)
-
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-@method_decorator(name='post', decorator=swagger_auto_schema(tags=['ForgotMPIN']))
-class ForgotMPINView(APIView):
-
-    def post(self, request):
-        serializer = ForgotMPINRequestSerializer(data=request.data)
+    def patch(self, request, *args, **kwargs):
+        """Override patch to return custom response format"""
+        partial = True
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
-        email = serializer.validated_data.get('email')
-        phone = serializer.validated_data.get('phone')
+        self.perform_update(serializer)
 
-        if email:
-            channel = 'email'
-            verification = EmailVerification.objects.filter(email=email, is_verified=True).first()
-        else:
-            channel = 'phone'
-            verification = PhoneVerification.objects.filter(phone=phone, is_verified=True).first()
-
-        if not verification:
-            return Response({
-                "status": False,
-                "message": "No verified record found. Please verify your email or phone first."
-            }, status=status.HTTP_404_NOT_FOUND)
-        
-        if verification._is_blocked():
-            return Response({
-                "status": False,
-                "message": "Too many failed attempts. Please try again later."
-            }, status=status.HTTP_403_FORBIDDEN)
-
-        if not verification.can_request_new_otp():
-            return Response({
-                "status": False,
-                "message": "Please wait at least 60 seconds before requesting another OTP."
-            }, status=status.HTTP_429_TOO_MANY_REQUESTS)
-
-        otp = str(123456) #generate_numeric_otp()
-        verification.set_otp(otp)
-
-        # Send OTP
-        if channel == 'email':
-            email_sent = send_otp_email(email, otp)
-            masked_email = mask_email(email)
-            message = f"OTP sent successfully to {masked_email}"
-            return Response({
-                "status": True,
-                "message": message,
-                "email_sent": email_sent
-            }, status=status.HTTP_200_OK)
-
-        else:
-            sms_sent = send_otp_sms(phone, otp)
-            masked_phone = mask_phone(phone)
-            message = f"OTP sent successfully to {masked_phone}"
-            return Response({
-                "status": True,
-                "message": message,
-                "sms_sent": True #sms_sent
-            }, status=status.HTTP_200_OK)
-
-
-@method_decorator(name='post', decorator=swagger_auto_schema(tags=['VerifyOTP - Forgot MPIN']))
-class VerifyMPINOTPView(APIView):
-    def post(self, request):
-        email = request.data.get('email')
-        phone = request.data.get('phone')
-        otp = request.data.get('otp')
-
-        if not otp:
-            return Response({
-                "status": False,
-                "message": "OTP is required."
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        if not email and not phone:
-            return Response({
-                "status": False,
-                "message": "Email or phone is required."
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Determine which verification model to use
-        if email:
-            verification = get_object_or_404(EmailVerification, email=email)
-            channel = "email"
-            masked_value = mask_email(email)
-        else:
-            verification = get_object_or_404(PhoneVerification, phone=phone)
-            channel = "phone"
-            masked_value = mask_phone(phone)
-
-        remaining_block = verification._is_blocked()
-        if remaining_block:
-            return Response({
-                "status": False,
-                "message": f"Too many failed attempts. Try again after {remaining_block} seconds."
-            }, status=status.HTTP_403_FORBIDDEN)
-
-        if not verification.check_otp(otp):
-            verification.mark_attempt()
-            return Response({
-                "status": False,
-                "message": "Invalid or expired OTP."
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        return Response({
-            "status": True,
-            "message": f"{channel.title()} verified successfully.",
-            channel: masked_value,
-            f"is_{channel}_verified": True
-        }, status=status.HTTP_200_OK)
-
-@method_decorator(name='post', decorator=swagger_auto_schema(tags=['ResetMPIN']))
-class ChangeMPINView(APIView):
-    def post(self, request):
-        serializer = ChangeMPINSerializer(data=request.data)
-        if serializer.is_valid(raise_exception=True):
-            serializer.save()
-
-            return Response({
-                "status": True,
-                "message": "MPIN changed successfully."
+        return Response(
+            {
+                "message": "Social media updated successfully.",
+                "data": serializer.data,
+                "status": True
             },
-            status=status.HTTP_200_OK)
-
-        return Response({
-            "status": False,
-            "errors": serializer.errors
-        },
-        status=status.HTTP_400_BAD_REQUEST)
-
-class UploadDefaultVendorImageAPIView(APIView):
-    permission_classes = [AllowAny] 
-
-    def post(self, request):
-        file_obj = request.FILES.get('file')
-        if not file_obj:
-            return Response({"error": "Please upload a file."}, status=status.HTTP_400_BAD_REQUEST)
-
-        s3 = boto3.client(
-            's3',
-            aws_access_key_id=os.getenv('s3AccessKey'),
-            aws_secret_access_key=os.getenv('s3Secret')
+            status=status.HTTP_200_OK
         )
 
-        file_key = os.getenv('DEFAULT_VENDOR_IMAGE_PATH', 'defaults/vendor_default.png')
-        bucket_name = os.getenv('S3_BUCKET_NAME')
-
-        try:
-            # Upload file to S3 in the defined default path
-            s3.upload_fileobj(file_obj, bucket_name, file_key, ExtraArgs={'ACL': 'public-read'})
-
-            image_url = f"https://{bucket_name}.s3.amazonaws.com/{file_key}"
-
-            return Response({
-                "status": True,
-                "message": "Default vendor image uploaded successfully.",
-                "default_image_url": image_url
-            }, status=status.HTTP_201_CREATED)
-        except Exception as e:
-            return Response({
-                "status": False,
-                "message": f"Upload failed: {str(e)}"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-class VendorProfileImageUploadAPIView(APIView):
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['Social Media']))
+class SocialMediaDeleteView(generics.DestroyAPIView):
+    queryset = Social_media_master.objects.all()
+    authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
 
-    def post(self, request):
-        file_obj = request.FILES.get('file')
-        if not file_obj:
-            return Response({"error": "Please upload an image file."}, status=status.HTTP_400_BAD_REQUEST)
+    def destroy(self, request, *args, **kwargs):
+        try:
+            instance = self.get_object()
 
-        max_size = 4 * 1024 * 1024
-        if file_obj.size > max_size:
+            old_url = instance.media_image
+            if old_url and config("S3_BUCKET_NAME") in old_url:
+                s3 = boto3.client(
+                    "s3",
+                    aws_access_key_id=config("s3AccessKey"),
+                    aws_secret_access_key=config("s3Secret"),
+                )
+                bucket = config("S3_BUCKET_NAME")
+                old_key = old_url.split(f"https://{bucket}.s3.amazonaws.com/")[-1]
+                s3.delete_object(Bucket=bucket, Key=old_key)
+
+            instance.delete()
+
+            return Response({"message": "Deleted successfully."}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"message": f"Deletion failed: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+        
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Terms & Conditions']))
+class TermsAndConditionsView(generics.CreateAPIView):
+    queryset = Terms_and_condition_master.objects.all()
+    serializer_class = TermsConditionSerializer
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]      
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        title = serializer.validated_data.get('title')
+        content = serializer.validated_data.get('content')
+
+        if Terms_and_condition_master.objects.filter(
+            title__iexact=title,
+            content__iexact=content,
+            status__in=[1, 2]  
+        ).exists():
+            raise ValidationError("This Terms & Conditions already exists.")
+
+        self.perform_create(serializer)
+
+        return Response(
+            {
+                "message": "Terms & Conditions created successfully",
+                "data": serializer.data,
+                "status": True
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['Terms & Conditions']))
+class TermsAndConditionsListView(generics.ListAPIView):
+    serializer_class = TermsConditionSerializer
+    permission_classes = [AllowAny]
+
+    def get_queryset(self):
+        try:
+            queryset = Terms_and_condition_master.objects.filter(status__in=[1, 2])
+            return queryset
+        except Exception as e:
+            logger.error(f"Error fetching Terms and Conditions list: {str(e)}", exc_info=True)
+            return Terms_and_condition_master.objects.none()
+
+    def list(self, request, *args, **kwargs):
+        try:
+            queryset = self.get_queryset()
+            serializer = self.get_serializer(queryset, many=True)
             return Response(
-                {"error": "File size exceeds 4 MB limit."},
-                status=status.HTTP_400_BAD_REQUEST
+                {
+                    "message": "Terms & Conditions fetched successfully",
+                    "data": serializer.data
+                },
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            logger.error('error', "Unexpected error in Terms & Conditions list API", exc=e)
+            return Response(
+                {"message": "Failed to fetch Terms & Conditions."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-        vendor = request.user
-        s3 = boto3.client(
-            's3',
-            aws_access_key_id=os.getenv("s3AccessKey"),
-            aws_secret_access_key=os.getenv("s3Secret"),
-        )
 
-        bucket = os.getenv("S3_BUCKET_NAME")
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Terms & Conditions']))
+@method_decorator(name='patch', decorator=swagger_auto_schema(tags=['Terms & Conditions']))
+class TermsAndConditionsUpdateView(generics.UpdateAPIView):
+    queryset = Terms_and_condition_master.objects.filter(status__in=[1,2])
+    serializer_class = TermsConditionSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
 
-        ext = os.path.splitext(file_obj.name)[1]
-        unique_name = f"{uuid.uuid4().hex}{ext}"
-
-        file_key = f"vendors/{vendor.vendor_id}/{unique_name}"
-
+    def update(self, request, *args, **kwargs):
         try:
-            s3.upload_fileobj(file_obj, bucket, file_key, ExtraArgs={'ACL': 'public-read'})
-            image_url = f"https://{bucket}.s3.amazonaws.com/{file_key}"
+            partial = kwargs.pop('partial', False)
+            instance = self.get_object()
+            serializer = self.get_serializer(instance, data=request.data, partial=partial)
+            serializer.is_valid(raise_exception=True)
 
-            vendor.profile_image = image_url
-            vendor.save(update_fields=['profile_image'])
+            user = request.user
+            user_fullname = getattr(user, 'fullname', user.username)
+            title = serializer.validated_data.get('title')
+            content = serializer.validated_data.get('content')
+
+            duplicate = Terms_and_condition_master.objects.filter(
+                title__iexact=title,
+                content__iexact=content,
+                status__in=[1, 2]
+            ).exclude(id=instance.id)
+
+            if duplicate.exists():
+                logger.warning(f"Duplicate Terms & Conditions found for title '{title}' by '{user_fullname}'")
+                raise ValidationError("A Terms & Conditions with the same title and content already exists.")
+
+            instance = serializer.save(updated_by=user_fullname)
 
             return Response({
-                "status": True,
-                "message": "Profile image uploaded successfully.",
-                "profile_image": image_url
+                "message": "Terms & Conditions updated successfully",
+                "data": serializer.data
             }, status=status.HTTP_200_OK)
 
         except Exception as e:
+            logger.error(f"Unexpected error during Terms update: {str(e)}", exc_info=True)
+            return Response(
+                {"message": "An unexpected error occurred."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['Terms & Conditions']))
+class TermsAndConditionsDeleteView(generics.DestroyAPIView):
+    queryset = Terms_and_condition_master.objects.filter(status__in=[1, 2])  
+    serializer_class = TermsConditionSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def delete(self, request, *args, **kwargs):
+        try:
+            instance = self.get_object()
+            user_fullname = getattr(request.user, 'fullname', request.user.username)
+
+            instance.status = 3
+            instance.updated_by = user_fullname
+            instance.save(update_fields=['status', 'updated_by', 'updated_at'])
+
+            return Response(
+                {"message": "Terms & Conditions soft-deleted successfully", "status": True},
+                status=status.HTTP_200_OK
+            )
+
+        except Terms_and_condition_master.DoesNotExist:
+            return Response(
+                {"message": "Terms & Conditions not found or already deleted", "status": False},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        except Exception as e:
+            logger.error(f"Unexpected error while soft deleting Terms & Conditions: {str(e)}", exc_info=True)
+            return Response(
+                {"message": "An unexpected error occurred", "status": False},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['service Registration charges']))
+class GetRegistrationChargeView(APIView):
+    def get(self, request, id, *args, **kwargs):
+        try:
+            service = Service_master.objects.get(id=id, status__in=[1, 2])
             return Response({
-                "status": False,
-                "message": f"Upload failed: {str(e)}"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                "service_name": service.service_name,
+                "registration_charges": service.registration_charges
+            }, status=status.HTTP_200_OK)
+        except Service_master.DoesNotExist:
+            return Response(
+                {"error": "Service not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
 
-
-class VendorProfileImageDeleteAPIView(APIView):
+# ------------------- OPPVENUZ QUESTION ANSWER ---------------------------
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Admin Oppvenuz Question Answer']))
+class QuestionAnswerCreateView(generics.CreateAPIView):
+    queryset = Oppvenuz_ques_ans_master.objects.all()
+    serializer_class = QuestionAnswerSerializer
+    authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
-    def delete(self, request):
-        vendor = request.user
-        default_image = os.getenv('DEFAULT_VENDOR_IMAGE_PATH')
+    def perform_create(self, serializer):
+        data = serializer.validated_data
+        question = data.get('question', None)  
+        user_fullname = getattr(self.request.user, 'fullname', self.request.user.username)
+        question = serializer.validated_data.get('question')
+        if Oppvenuz_ques_ans_master.objects.filter(question__iexact=question, status__in=[1,2]).exists():
+         raise ValidationError({"question": f"'{question}' already exists and is active."})
+        serializer.save(created_by=user_fullname, updated_by=user_fullname)
 
-        vendor.profile_image = default_image
-        vendor.save(update_fields=['profile_image'])
+    def create(self, request, *args, **kwargs):
+        response = super().create(request, *args, **kwargs)
+        return Response({"status": True, "message": " created successfully", "data": response.data}, status=status.HTTP_201_CREATED)
 
-        return Response({
-            "status": True,
-            "message": "Profile image reset to default.",
-            "profile_image": default_image
-        }, status=status.HTTP_200_OK)
 
-# Base class for S3 Upload
-class ReadyToSellBaseView(APIView):
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['Admin Oppvenuz Question Answer']))
+class QuestionAnswerListView(generics.ListAPIView):
+    serializer_class = QuestionAnswerSerializer
+    permission_classes = [AllowAny]
+    # authentication_classes = [JWTAuthentication]
+    # permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = Oppvenuz_ques_ans_master.objects.filter(status=1).order_by('-id')
+        question = self.request.query_params.get('question', None)
+        if question:
+            queryset = queryset.filter(question__icontains=question)
+            if not queryset.exists():
+                logger.warning(f"{question} no such Details")
+                raise ValidationError({"question": f"{question} no such Details exists"})
+        return queryset
+    def list(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.get_queryset(), many=True)
+        return Response({"status": True, "message": "Details fetched successfully", "data": serializer.data}, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Admin Oppvenuz Question Answer']))
+@method_decorator(name='patch', decorator=swagger_auto_schema(tags=['Admin Oppvenuz Question Answer']))
+class QuestionAnswerUpdateView(generics.UpdateAPIView):
+    queryset = Oppvenuz_ques_ans_master.objects.filter(status=1)
+    serializer_class = QuestionAnswerSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        data = serializer.validated_data
+        question = data.get('question', None)
+        updated_by = getattr(user, "fullname", user.username)
+        serializer.save(updated_by=updated_by)
+    def update(self, request, *args, **kwargs):
+        response = super().update(request, *args, **kwargs)
+        return Response({"status": True, "message": "Details updated successfully", "data": response.data}, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['Admin Oppvenuz Question Answer']))
+class QuestionAnswerDeleteView(generics.DestroyAPIView):
+    queryset = Oppvenuz_ques_ans_master.objects.filter(status=1)
+    serializer_class = QuestionAnswerSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            instance = self.get_object()
+            user = request.user
+            instance.status = 3
+            instance.updated_by = getattr(user, "fullname", user.username)
+            instance.updated_at = timezone.now()
+            instance.save(update_fields=['status', 'updated_by', 'updated_at'])
+            return Response({"status": True,"message": "Details deleted successfully."},status=status.HTTP_200_OK)
+        except Payment_type.DoesNotExist:
+            logger.warning(f" ID {kwargs.get('id')} not found")
+            return Response({"error": "not found"}, status=404)
+        except Exception as e:
+            logger.error(f"Error deleting: {str(e)}")
+            return Response({"error": str(e)}, status=500)
+
+
+class UploadOnboardingView(APIView):
+    permission_classes = [AllowAny]
+
     def upload_to_s3(self, file_obj):
-        """Uploads a file to S3 and returns its public URL."""
         s3 = boto3.client(
             "s3",
             aws_access_key_id=config("s3AccessKey"),
             aws_secret_access_key=config("s3Secret"),
         )
         bucket = config("S3_BUCKET_NAME")
-        key = f"ready_to_sell/{file_obj.name}"
+        key = f"onboarding/{file_obj.name}"
         s3.upload_fileobj(file_obj, bucket, key, ExtraArgs={"ACL": "public-read"})
         return f"https://{bucket}.s3.amazonaws.com/{key}"
-    
-@method_decorator(name='post', decorator=swagger_auto_schema(tags=['ready_to_sell']))
-class CreateReadyToSellItemView(ReadyToSellBaseView):
-    authentication_classes = [VendorJWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    def post(self, request):
-        product_name = request.data.get("product_name")
-        price = request.data.get("price")
-        description = request.data.get("description", "")
-        files = request.FILES.getlist("images")
 
-        if not product_name or not price:
-            return Response({
-                "status": False,
-                "message": "Product name and price are required.",
-                "data": None
-            }, status=status.HTTP_400_BAD_REQUEST)
+    def post(self, request):
+        file = request.FILES.get("file")
+        title = request.data.get("title")
+        type_ = int(request.data.get("type", 2))  # 1 = GIF, 2 = Flash
+        order = int(request.data.get("order", 0))
+
+        if not file:
+            return Response({"error": "File is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         allowed_ext = (".png", ".jpg", ".jpeg", ".gif")
-        invalid_files = [f.name for f in files if not f.name.lower().endswith(allowed_ext)]
-        if invalid_files:
-            return Response({
-                "status": False,
-                "message": f"Invalid file type(s): {', '.join(invalid_files)}. Only images are allowed.",
-                "data": None
-            }, status=status.HTTP_400_BAD_REQUEST)
+        if not file.name.lower().endswith(allowed_ext):
+            return Response({"error": "Invalid file type"}, status=status.HTTP_400_BAD_REQUEST)
 
-        uploaded_urls = []
-        if files:
-            with ThreadPoolExecutor(max_workers=5) as executor:
-                futures = [executor.submit(self.upload_to_s3, f) for f in files]
-                for future in futures:
-                    uploaded_urls.append(future.result())
+        # Upload to S3
+        file_url = self.upload_to_s3(file)
+        media = {"image": file_url}
 
-        status_obj = get_status("Active")
-        item = ReadyToSellItem.objects.create(
-            product_name=product_name.strip(),
-            price=price,
-            description=description.strip(),
-            image_urls=uploaded_urls,
-            status=status_obj,
+        screen = OnboardingScreens.objects.create(
+            title=title,
+            media=media,
+            type=type_,
+            order=order,
         )
 
-        return Response({
-            "status": True,
-            "message": "Item created successfully.",
-            "data": ReadyToSellItemSerializer(item).data
-        }, status=status.HTTP_201_CREATED)
+        return Response(OnboardingScreenSerializer(screen).data, status=status.HTTP_201_CREATED)
 
-@method_decorator(name="get", decorator=swagger_auto_schema(tags=["ready_to_sell"]))
-class GetAllReadyToSellItemsView(generics.ListAPIView):
-    serializer_class = ReadyToSellItemSerializer
-
-    def get_queryset(self):
-        """Fetch only non-deleted items"""
-        active_status = get_status("Active")
-        return ReadyToSellItem.objects.filter(status=active_status).order_by("-created_at")
-
-    def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-        serializer = self.get_serializer(queryset, many=True)
-        return Response({
-            "status": True,
-            "message": "Active items fetched successfully.",
-            "data": serializer.data,
-        }, status=status.HTTP_200_OK)
-
-@method_decorator(name="get", decorator=swagger_auto_schema(tags=["ready_to_sell"]))
-class GetReadyToSellItemByIDView(generics.RetrieveAPIView):
-    serializer_class = ReadyToSellItemSerializer
-    lookup_field = "id"
-
-    def get_queryset(self):
-        """Exclude deleted items"""
-        deleted_status = get_status("Deleted")
-        return ReadyToSellItem.objects.exclude(status=deleted_status)
-
-    def retrieve(self, request, *args, **kwargs):
-        try:
-            instance = self.get_queryset().get(id=kwargs["id"])
-        except ReadyToSellItem.DoesNotExist:
-            return Response({
-                "status": False,
-                "message": "Item not found or has been deleted.",
-                "data": None,
-            }, status=status.HTTP_404_NOT_FOUND)
-
-        serializer = self.get_serializer(instance)
-        return Response({
-            "status": True,
-            "message": "Item fetched successfully.",
-            "data": serializer.data,
-        }, status=status.HTTP_200_OK)
-
-@method_decorator(name='put', decorator=swagger_auto_schema(tags=['ready_to_sell']))
-class UpdateReadyToSellItemView(ReadyToSellBaseView):
-    authentication_classes = [VendorJWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    def put(self, request, id):
-        try:
-            item = ReadyToSellItem.objects.get(id=id)
-        except ReadyToSellItem.DoesNotExist:
-            return Response({
-                "status": False,
-                "message": "Item not found.",
-                "data": None
-            }, status=status.HTTP_404_NOT_FOUND)
-
-        product_name = request.data.get("product_name", item.product_name)
-        price = request.data.get("price", item.price)
-        description = request.data.get("description", item.description)
-        status_name = request.data.get("status")
-
-        status_obj = get_status(status_name) if status_name else item.status
-
-        files = request.FILES.getlist("images")
-        if files:
-            allowed_ext = (".png", ".jpg", ".jpeg", ".gif")
-            new_urls = []
-            for f in files:
-                if not f.name.lower().endswith(allowed_ext):
-                    return Response({
-                        "status": False,
-                        "message": f"Invalid file type for {f.name}.",
-                        "data": None
-                    }, status=status.HTTP_400_BAD_REQUEST)
-                new_urls.append(self.upload_to_s3(f))
-            item.image_urls.extend(new_urls)
-
-        item.product_name = product_name
-        item.price = price
-        item.description = description
-        item.status = status_obj
-        item.updated_at = timezone.now()
-        item.save()
-
-        return Response({
-            "status": True,
-            "message": "Item updated successfully.",
-            "data": ReadyToSellItemSerializer(item).data
-        }, status=status.HTTP_200_OK)
-
-@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['ready_to_sell']))
-class DeleteReadyToSellItemView(APIView):
-    authentication_classes = [VendorJWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    def delete(self, request, id):
-        """
-        delete an item by marking its status as 'Deleted'.
-        """
-        try:
-            item = ReadyToSellItem.objects.get(id=id)
-        except ReadyToSellItem.DoesNotExist:
-            return Response({
-                "status": False,
-                "message": "Item not found.",
-                "data": None
-            }, status=status.HTTP_404_NOT_FOUND)
-
-        deleted_status = get_status("Deleted")
-        if item.status == deleted_status:
-            return Response({
-                "status": False,
-                "message": "Item is already deleted.",
-                "data": None
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        item.status = deleted_status
-        item.updated_at = timezone.now()
-        item.save(update_fields=["status", "updated_at"])
-
-        return Response({
-            "status": True,
-            "message": "Item deleted successfully.",
-            "data": None
-        }, status=status.HTTP_200_OK)
-    
-class VendorRegistrationProfileAPIView(generics.GenericAPIView):
-    authentication_classes = [VendorJWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    serializer_class = VendorRegistrationSerializer
-
-    def get(self, request, *args, **kwargs):
-        user_email = getattr(request.user, 'email', None)
-        user_username = getattr(request.user, 'username', None)
-
-        vendor = None
-        if user_email:
-            vendor = Vendor_registration.objects.filter(email__iexact=user_email).first()
-        if not vendor and user_username:
-            vendor = Vendor_registration.objects.filter(contact_no__iexact=user_username).first()
-
-        if not vendor:
-            return Response({
-                "status": False,
-                "message": "Vendor profile not found for the authenticated user."
-            }, status=status.HTTP_404_NOT_FOUND)
-
-        serializer = self.get_serializer(vendor)
-        return Response({
-            "status": True,
-            "message": "Vendor profile fetched successfully.",
-            "data": serializer.data
-        }, status=status.HTTP_200_OK)
-    
-class VendorBasicDetailsUpdateAPIView(generics.UpdateAPIView):
-    authentication_classes = [VendorJWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    serializer_class = VendorBasicDetailsSerializer
-
-    def get_object(self):
-        user_email = getattr(self.request.user, 'email', None)
-        user_username = getattr(self.request.user, 'username', None)
-
-        vendor = None
-        if user_email:
-            vendor = Vendor_registration.objects.filter(email__iexact=user_email).first()
-        if not vendor and user_username:
-            vendor = Vendor_registration.objects.filter(contact_no__iexact=user_username).first()
-
-        return vendor
-
-    def update(self, request, *args, **kwargs):
-        vendor = self.get_object()
-        if not vendor:
-            return Response({
-                "status": False,
-                "message": "Vendor not found."
-            }, status=status.HTTP_404_NOT_FOUND)
-
-        serializer = self.get_serializer(vendor, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response({
-                "status": True,
-                "message": "Basic details updated successfully.",
-                "data": serializer.data
-            }, status=status.HTTP_200_OK)
-
-        return Response({
-            "status": False,
-            "message": "Validation failed.",
-            "errors": serializer.errors
-        }, status=status.HTTP_400_BAD_REQUEST)
-
-class VendorSocialMediaView(generics.GenericAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = VendorSocialMediaSerializer
+class GetOnboardingFlowView(APIView):
+    permission_classes = [AllowAny]
 
     def get(self, request):
-        try:
-            vendor = Vendor_registration.objects.filter(
-                email=request.user.email
-            ).first()
+        gif = OnboardingScreens.objects.filter(status=1, type=1).order_by("-created_at").first()
+        flash_screens = OnboardingScreens.objects.filter(status=1, type=2).order_by("order")[:3]
 
-            if not vendor:
-                return Response({
-                    "status": False,
-                    "message": "Vendor not found for this user."
-                }, status=status.HTTP_404_NOT_FOUND)
+        response = {
+            "gif": OnboardingScreenSerializer(gif).data if gif else None,
+            "flash_screens": OnboardingScreenSerializer(flash_screens, many=True).data,
+        }
+        return Response(response, status=status.HTTP_200_OK)
 
-            social_media, _ = VendorSocialMedia.objects.get_or_create(
-                vendor=vendor,
-                vendor_reg_id=vendor.vendor_id
-            )
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Company Document Mapping']))
+class CompanyDocumentMappingCreateView(generics.CreateAPIView):
+    queryset = CompanyDocumentMapping.objects.all()
+    serializer_class = CompanyDocumentMappingSerializer
 
-            serializer = self.get_serializer(social_media)
-            return Response({
-                "status": True,
-                "message": "Social media details fetched successfully.",
-                "data": serializer.data
-            }, status=status.HTTP_200_OK)
+    def perform_create(self, serializer):
+        user_fullname = getattr(self.request.user, 'fullname', self.request.user.username)
+        company_type = serializer.validated_data.get('company_type')
+        document_type_obj = serializer.validated_data.get('document_type')
 
-        except Exception as e:
-            traceback.print_exc()
-            return Response({
-                "status": False,
-                "message": f"Error fetching social media: {str(e)}"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    def put(self, request):
-        try:
-            vendor = Vendor_registration.objects.filter(
-                email=request.user.email
-            ).first()
-
-            if not vendor:
-                return Response({
-                    "status": False,
-                    "message": "Vendor not found for this user."
-                }, status=status.HTTP_404_NOT_FOUND)
-
-            social_media, created = VendorSocialMedia.objects.get_or_create(
-                vendor=vendor,
-                vendor_reg_id=vendor.vendor_id
-            )
-
-            serializer = self.get_serializer(social_media, data=request.data, partial=True)
-            if serializer.is_valid():
-                instance = serializer.save(updated_by=request.user.email)
-
-                if created and not instance.created_by:
-                    instance.created_by = request.user.email
-                    instance.save(update_fields=["created_by"])
-
-                return Response({
-                    "status": True,
-                    "message": "Social media details updated successfully.",
-                    "data": self.get_serializer(instance).data
-                }, status=status.HTTP_200_OK)
-
-            return Response({
-                "status": False,
-                "message": "Invalid data.",
-                "errors": serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        except Exception as e:
-            traceback.print_exc()
-            return Response({
-                "status": False,
-                "message": f"Error updating social media: {str(e)}"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
+        if CompanyDocumentMapping.objects.filter(
+            company_type=company_type, document_type=document_type_obj, status__in=[1, 2]
+        ).exists():
+            raise ValidationError({"detail": "This document is already mapped with the selected company type."})
+
+        serializer.save(created_by=user_fullname, updated_by=user_fullname)
 
 
-class VendorMediaUploadAPIView(APIView):
-    permission_classes = (AllowAny,)
-    authentication_classes = [VendorJWTAuthentication]
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['Company Document Mapping']))
+class CompanyDocumentMappingListView(generics.ListAPIView):
+    serializer_class = CompanyDocumentMappingSerializer
 
-    MAX_IMAGE_COUNT = 10
-    MAX_VIDEO_COUNT = 3
-    MAX_IMAGE_SIZE_MB = 2
-    MAX_VIDEO_SIZE_MB = 20
+    def get_queryset(self):
+        return CompanyDocumentMapping.objects.filter(status=1).select_related('company_type', 'document_type')
 
-    def post(self, request):
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['Company Document Mapping']))
+class CompanyDocumentMappingDeleteView(generics.DestroyAPIView):
+    queryset = CompanyDocumentMapping.objects.filter(status=1)
+    serializer_class = CompanyDocumentMappingSerializer
+    lookup_field = 'pk'
+
+    def destroy(self, request, *args, **kwargs):
         try:
-            vendor_id = request.data.get("vendor_id")  
-            media_type = request.data.get("media_type") 
-            files = request.FILES.getlist("files")
-
-            if not all([vendor_id, media_type, files]):
-                return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
-
-            vendor = Vendor_registration.objects.filter(vendor_id=vendor_id).first()
-            if not vendor:
-                return Response({"error": "Invalid vendor_id"}, status=status.HTTP_400_BAD_REQUEST)
-
-            existing_count = VendorMedia.objects.filter(vendor_code=vendor_id, media_type=media_type, status="ACTIVE").count()
-            if media_type == "IMAGE" and (existing_count + len(files)) > self.MAX_IMAGE_COUNT:
-                return Response({"error": f"Max {self.MAX_IMAGE_COUNT} images allowed."}, status=status.HTTP_400_BAD_REQUEST)
-            if media_type == "VIDEO" and (existing_count + len(files)) > self.MAX_VIDEO_COUNT:
-                return Response({"error": f"Max {self.MAX_VIDEO_COUNT} videos allowed."}, status=status.HTTP_400_BAD_REQUEST)
-
-            for f in files:
-                size_mb = f.size / (1024 * 1024)
-                if media_type == "IMAGE" and size_mb > self.MAX_IMAGE_SIZE_MB:
-                    return Response({"error": f"Each image must be ≤ {self.MAX_IMAGE_SIZE_MB} MB."}, status=status.HTTP_400_BAD_REQUEST)
-                if media_type == "VIDEO" and size_mb > self.MAX_VIDEO_SIZE_MB:
-                    return Response({"error": f"Each video must be ≤ {self.MAX_VIDEO_SIZE_MB} MB."}, status=status.HTTP_400_BAD_REQUEST)
-
-            s3 = boto3.client(
-                "s3",
-                aws_access_key_id=config("s3AccessKey"),
-                aws_secret_access_key=config("s3Secret"),
-            )
-            bucket = config("S3_BUCKET_NAME")
-
-            uploaded_files = []
-            for file in files:
-                ext = os.path.splitext(file.name)[1]
-                unique_name = f"{uuid.uuid4().hex}{ext}"
-                key = f"vendor_media/{vendor_id}/{unique_name}"
-
-                s3.upload_fileobj(file, bucket, key, ExtraArgs={"ACL": "public-read"})
-                file_url = f"https://{bucket}.s3.amazonaws.com/{key}"
-
-                media = VendorMedia.objects.create(
-                    vendor=vendor,
-                    vendor_code=vendor_id,
-                    file_url=file_url,
-                    file_name=unique_name,
-                    media_type=media_type,
-                )
-                uploaded_files.append(VendorMediaSerializer(media).data)
-
-            return Response({
-                "message": "Media uploaded successfully.",
-                "uploaded": uploaded_files
-            }, status=status.HTTP_201_CREATED)
-
+            instance = self.get_object()
+            instance.status = 3  
+            instance.updated_by = getattr(request.user, 'fullname', request.user.username)
+            instance.updated_at = timezone.now()
+            instance.save(update_fields=['status', 'updated_by', 'updated_at'])
+            return Response({"status": True, "message": "Mapping deleted successfully."}, status=status.HTTP_200_OK)
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-class VendorMediaListAPIView(APIView):
-    permission_classes = (AllowAny,)
-    authentication_classes = [VendorJWTAuthentication]
-
-    def get(self, request, vendor_id):
-        media = VendorMedia.objects.filter(vendor_code=vendor_id, status="ACTIVE")
-        serializer = VendorMediaSerializer(media, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-
-class VendorMediaDeleteAPIView(APIView):
-    permission_classes = (AllowAny,)
-    authentication_classes = [VendorJWTAuthentication]
-
-    def delete(self, request, pk):
-        try:
-            media = VendorMedia.objects.get(pk=pk, status="ACTIVE")
-
-            s3 = boto3.client(
-                "s3",
-                aws_access_key_id=config("s3AccessKey"),
-                aws_secret_access_key=config("s3Secret"),
-            )
-            bucket = config("S3_BUCKET_NAME")
-            key = f"vendor_media/{media.vendor_code}/{media.file_name}"
-
-            s3.delete_object(Bucket=bucket, Key=key)
-
-            media.status = "DELETED"
-            media.save()
-
-            return Response({"message": "Media deleted successfully"}, status=status.HTTP_200_OK)
-
-        except VendorMedia.DoesNotExist:
-            return Response({"error": "Media not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"status": False, "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

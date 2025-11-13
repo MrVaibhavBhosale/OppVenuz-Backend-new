@@ -1,287 +1,360 @@
-from django.db import models, transaction
-#from .managers import VendorManager
-from django.contrib.auth.hashers import check_password
-from django.contrib.auth.hashers import make_password
-from django.contrib.postgres.fields import ArrayField
-from admin_master.models import (
-    Service_master,
-    State_master,
-    City_master, 
-    Best_suited_for,
-    CompanyTypeMaster,
-    StatusMaster
-)
+from django.db import models
+from django.contrib.auth.models import User
 from django.utils import timezone
-import random
-from datetime import timedelta
-from django.conf import settings
 
+# Model For Role 
+class Role_master(models.Model):
 
-class Vendor(models.Model):
-    business_name = models.CharField(max_length=255)
-    email = models.EmailField()
-    contact_number = models.CharField(max_length=20)
-    working_since = models.IntegerField()  # Year
-    years_of_experience = models.IntegerField()
-    description = models.TextField(blank=True, null=True)
-    is_active = models.BooleanField(default=True)
+    role_name = models.CharField(max_length=255)
+    status = models.IntegerField(default=1)
+
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_by = models.CharField(max_length=255, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
-    class Meta:
-        app_label = 'vendor'
 
     def __str__(self):
-        return self.business_name
+        return self.role_name
     
+# Model For Best Suited For
+class Best_suited_for(models.Model):
 
-    
-class Vendor_registration(models.Model): 
-    email = models.EmailField(null=True, blank=True, unique=True)
-    contact_no = models.CharField(max_length=12, null=True, blank=True, unique=True)
-    whatsapp_no = models.CharField(max_length=12, null=True, blank=True, unique=True)  
-    first_name = models.CharField(max_length=100)
-    middle_name = models.CharField(max_length=100, null=True, blank=True)  
-    last_name = models.CharField(max_length=100)
-    gender = models.CharField(max_length=10)
-    date_of_birth = models.DateField()
-    mpin = models.CharField(max_length=255, editable=False)
-    city_id = models.ForeignKey(City_master, on_delete=models.PROTECT, null=True, blank=True)
-    state_id = models.ForeignKey(State_master, on_delete=models.PROTECT, null=True, blank=True)
-    pincode = models.CharField(max_length=10, null=True, blank=True)
-    address = models.TextField(null=True, blank=True)
-    latitude = models.DecimalField(max_digits=13, decimal_places=6, null=True, blank=True)
-    longitude = models.DecimalField(max_digits=13, decimal_places=6, null=True, blank=True)
-    vendor_id = models.CharField(max_length=12, unique=True, blank=True)
-    business_name = models.CharField(max_length=255)
-    service_id = models.ForeignKey(Service_master, on_delete=models.PROTECT, null=True, blank=True)
-    best_suited = models.ForeignKey(Best_suited_for, on_delete=models.PROTECT, null=True, blank=True)
-    referral_code = models.CharField(max_length=12, unique=True, blank=True)
-    working_since = models.DateField()
-    year_of_experience = models.IntegerField(default=0)
-    terms_conditions = models.BooleanField(default=True)
-    privacy_policy = models.BooleanField(default=True)
-    payment_cancellation = models.BooleanField(default=True)   
-    # document_id = models.CharField(max_length=100, null=True, blank=True)
-    document_id = ArrayField(models.IntegerField(), default=list, blank=True)
-    PAYMENT_STATUS_CHOICES = [
-        ('PENDING', 'Pending'),
-        ('PAID', 'Paid'),
-        ('FAILED', 'Failed'),
-    ]
-    PROFILE_STATUS_CHOICES = [
-        ('PENDING', 'Pending'),
-        ('APPROVED', 'Approved'),
-        ('REJECTED', 'Rjected'),
-    ]
-    payment_status = models.CharField(max_length=20, choices=PAYMENT_STATUS_CHOICES, default='PENDING')  
-    profile_status = models.CharField(max_length=20, choices=PROFILE_STATUS_CHOICES, default='PENDING')  
-    is_active = models.BooleanField(default=True)
-    status = models.ForeignKey(StatusMaster, on_delete=models.PROTECT, default=1)
-    reason = models.TextField(max_length=255)
-    profile_image = models.URLField(null=True, blank=True)
-    updated_by = models.CharField(max_length=100, null=True, blank=True)
+    name = models.CharField(max_length=255)
+    status = models.IntegerField(default=1)
+
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_by = models.CharField(max_length=255, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    objects = VendorManager()
+    def __str__(self):
+        return self.name
+
+# Model For State
+class State_master(models.Model):
+
+    state_name = models.CharField(max_length=255)
+    state_code = models.IntegerField()
+    status = models.IntegerField(default=1)
+
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_by = models.CharField(max_length=255, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.state_name
+
+# Model For City
+class City_master(models.Model):
+    state = models.ForeignKey(
+        State_master, 
+        on_delete=models.CASCADE,        
+        related_name='cities'           
+    )
+    city_name = models.CharField(max_length=255)
+    pincode = models.IntegerField()
+    status = models.IntegerField(default=1)
+
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_by = models.CharField(max_length=255, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.city_name}, {self.state.state_name}"
+    
+# Model For Payment Type
+class Payment_type(models.Model):
+
+    payment_type = models.CharField(max_length=255)
+    status = models.IntegerField(default=1)
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_by = models.CharField(max_length=255, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.payment_type
+    
+
+class Service_master(models.Model):
+    service_name = models.CharField(max_length=255)
+    registration_charges = models.DecimalField(max_digits=10, decimal_places=2)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_by = models.CharField(max_length=255, null=True, blank=True)
+    status = models.IntegerField(default=1)
+
+    def __str__(self):
+        return self.service_name
+
+class document_type(models.Model):
+    STATUS_CHOICES = (
+        (1, 'Active'),
+        (2, 'Inactive'),
+        (3, 'Deleted'),
+    )
+
+    document_type = models.CharField(max_length=255)
+    status = models.PositiveSmallIntegerField(choices=STATUS_CHOICES, default=1)
+
+    created_by = models.CharField(max_length=255, blank=True, null=True)
+    updated_by = models.CharField(max_length=255, blank=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.document_type
+
+# Model For Article Type
+class Article_type(models.Model):
+    article_type = models.CharField(max_length=255)
+    status = models.IntegerField(default=1)
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_by = models.CharField(max_length=255, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.article_type
+
+# Model For Delivery Options
+class Delivery_option(models.Model):
+
+    delivery_option = models.CharField(max_length=255)
+    status = models.IntegerField(default=1)
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_by = models.CharField(max_length=255, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.delivery_option
+    
+# Model For Best Deal
+class Best_deal(models.Model):
+
+    deal_name = models.CharField(max_length=255)
+    image = models.URLField(max_length=255)
+    occasion = models.CharField(max_length=255)
+    duration_of_deal = models.DateTimeField(max_length=255)
+    status = models.IntegerField(default=1)
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_by = models.CharField(max_length=255, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.deal_name
+
+# Model For App Version
+class App_version(models.Model):
+
+    app_version = models.CharField(max_length=255) 
+    is_force_update = models.BooleanField(default=False) 
+    status = models.IntegerField(default=1)
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_by = models.CharField(max_length=255, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.app_version, self.is_force_update
+    
+# ------------------ STATUS MASTER ------------------
+class StatusMaster(models.Model):
+    STATUS_TYPE_CHOICES = (
+        ('Active', 'Active'),
+        ('Inactive', 'Inactive'),
+        ('Deleted', 'Deleted'),
+        ('Pending', 'Pending'),
+        ('Approved', 'Approved'),
+        ('Rejected', 'Rejected'),
+        ('Archived', 'Archived'),
+        ('Draft', 'Draft'),
+        ('Completed', 'Completed'),
+        ('Expired', 'Expired'),
+        ('Paid', 'Paid'),
+        ('Unpaid', 'Unpaid'),
+        ('Suspended', 'Suspended'),
+    )
+
+    status_type = models.CharField(
+        max_length=50,
+        choices=STATUS_TYPE_CHOICES,
+        default='Active'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_by = models.CharField(max_length=255, null=True, blank=True)
 
     class Meta:
-        constraints = [
-           models.UniqueConstraint(
-                fields=['email', 'contact_no', 'service_id'],
-                name='unique_vendor_service_contact'
-           ),
-        ]
+        db_table = 'admin_master_status_master'
 
-    def set_mpin(self, raw_mpin):
-        self.mpin = make_password(raw_mpin)
+    def __str__(self):
+        return self.status_type
 
-    def check_mpin(self, raw_mpin):
-        return check_password(raw_mpin, self.mpin)
-    
-    @property
-    def is_authenticated(self):
-        return True
 
-    @property
-    def is_anonymous(self):
-        return False
-    
-    USERNAME_FIELD = 'email'
+# ------------------ CAKE MASTER ------------------
+class CakeMaster(models.Model):
+    shape_name = models.CharField(max_length=100, default="Round")
+    cake_type = models.CharField(max_length=100, default="Egg")
+    flavor = models.CharField(max_length=100, default="Vanilla")
+    status = models.ForeignKey(StatusMaster, on_delete=models.PROTECT, default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_by = models.CharField(max_length=255, null=True, blank=True)
 
-    @property
-    def username(self):
-        return self.email or self.contact_no or f"vendor_{self.pk}"
+    class Meta:
+        db_table = 'admin_master_cake_master'
 
-    def get_username(self):
-        return self.email or self.contact_no
+    def __str__(self):
+        return f"{self.flavor} - {self.shape_name} ({self.cake_type})"
+
+
+# ------------------ COMPANY TYPE MASTER ------------------
+class CompanyTypeMaster(models.Model):
+    company_type = models.CharField(max_length=150, unique=True)
+    status = models.ForeignKey(StatusMaster, on_delete=models.PROTECT, default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_by = models.CharField(max_length=255, null=True, blank=True)
+
+    class Meta:
+        db_table = 'admin_master_company_type_master'
+
+    def __str__(self):
+        return self.company_type
+
+
+# ------------------ VENUE TYPE MASTER ------------------
+class VenueTypeMaster(models.Model):
+    venue_type = models.CharField(max_length=150, unique=True)
+    status = models.ForeignKey(StatusMaster, on_delete=models.PROTECT, default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_by = models.CharField(max_length=255, null=True, blank=True)
+
+    class Meta:
+        db_table = 'admin_master_venue_type_master'
+
+    def __str__(self):
+        return self.venue_type
+
+
+# ------------------ OPPVENUZ CHOICE MASTER ------------------
+class OppvenuzChoiceMaster(models.Model):
+    choice_name = models.CharField(max_length=255, unique=True)
+    minimum_comments_count = models.PositiveIntegerField(default=0)
+    archived_comments_count = models.PositiveIntegerField(default=0)
+    average_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    status = models.ForeignKey(StatusMaster, on_delete=models.PROTECT, default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_by = models.CharField(max_length=255, null=True, blank=True)
+
+    class Meta:
+        db_table = 'admin_master_oppvenuz_choice_master'
 
     def save(self, *args, **kwargs):
-        
-        if not self.vendor_id:
-            with transaction.atomic():
-                last_vendor = Vendor_registration.objects.select_for_update().order_by('-id').first()
-                if last_vendor and last_vendor.vendor_id:
-                    last_number = int(last_vendor.vendor_id.replace('OV', ''))
-                else:
-                    last_number = 0
-                self.vendor_id = f"OV{last_number + 1:010d}"
-
-        # --- Set referral_code same as vendor_id ---
-        if not self.referral_code:
-            self.referral_code = self.vendor_id
-
+        if self.minimum_comments_count > 0:
+            self.average_percentage = (self.archived_comments_count / self.minimum_comments_count) * 100
+        else:
+            self.average_percentage = 0
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return self.business_name
-    
-class VendorDevice(models.Model):
-    vendor_id = models.ForeignKey(Vendor_registration, on_delete=models.PROTECT)
-    device_type = models.CharField(max_length=50)
-    os_version = models.CharField(max_length=50)
-    browser_name = models.CharField(max_length=50, null=True, blank=True)
-    browser_version = models.CharField(max_length=50, null=True, blank=True)
-    last_login = models.DateTimeField(auto_now=True)
+        return self.choice_name
+
+
+# ------------------ GST MASTER ------------------
+class GstMaster(models.Model):
+    gst_percentage = models.PositiveIntegerField()
     status = models.ForeignKey(StatusMaster, on_delete=models.PROTECT, default=1)
-    os_type = models.CharField(max_length=50, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_by = models.CharField(max_length=255, null=True, blank=True)
 
     class Meta:
-        unique_together = ('vendor_id', 'device_type', 'os_version', 'browser_name', 'os_type')
+        db_table = 'admin_master_gst_master'
 
     def __str__(self):
-        return f"{self.vendor} - {self.device_type} {self.os_version}"
+        return f"{self.gst_percentage}%"
+
+
+class OnboardingScreens(models.Model):
+    TYPE_CHOICES = (
+        (1, "GIF"),
+        (2, "FLASH"),
+    )
+
+    STATUS_CHOICES = (
+        (1, "Active"),
+        (2, "Deleted"),
+    )
+
+    title = models.CharField(max_length=255)
+    media = models.JSONField(null=True, blank=True) 
+    type = models.IntegerField(choices=TYPE_CHOICES, default=2) 
+    order = models.IntegerField(default=0)
+    status = models.IntegerField(choices=STATUS_CHOICES, default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["type", "order"]
+
+    def __str__(self):
+        return f"{self.title} ({self.get_type_display()})"
+
+
+class Social_media_master(models.Model):
+    media_name = models.CharField(max_length=255, unique=True)
+    media_image = models.URLField(max_length=300)
+    status = models.ForeignKey(StatusMaster, on_delete=models.PROTECT, default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_by = models.CharField(max_length=255, null=True, blank=True)
+
+    def __str__(self):
+        return self.media_name
     
-
-class VendorDocument(models.Model):
-    STATUS_CHOICES = [
-        ('TEMP', 'Temporary'),
-        ('VERIFIED', 'Verified'),
-        ('DELETED', 'Deleted'),
-    ]
-
-    id = models.AutoField(primary_key=True)
-    verification = models.ForeignKey(
-        "PhoneVerification",
-        on_delete=models.CASCADE,
-        related_name="documents",
-        null=True,
-        blank=True,
-    )
-
-    company_type = models.ForeignKey(
-        'admin_master.CompanyTypeMaster',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True
-    )
-    document_type = models.CharField(max_length=100)
-    document_url = models.URLField(default="")
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='TEMP')
-    uploaded_at = models.DateTimeField(auto_now_add=True)
-    vendor_business_no = models.CharField(max_length=20, default="")    
-    def default_expiry():
-        return timezone.now() + timedelta(hours=1)
-    expires_at = models.DateTimeField(default=default_expiry)
-    def __str__(self):
-        phone = self.verification.phone if self.verification else "NoPhone"
-        return f"{phone} - {self.document_type}"
-
-class AbstractVerification(models.Model):
-    otp = models.CharField(max_length=128, null=True, blank=True)
-    otp_created_at = models.DateTimeField(null=True, blank=True)
-    otp_expired_at = models.DateTimeField(null=True, blank=True)
-    attempts = models.IntegerField(default=0)
-    is_blocked_until = models.DateTimeField(null=True, blank=True)
-    is_verified = models.BooleanField(default=False)
-
-    MAX_ATTEMPTS = 5
-    OTP_TTL_SECONDS = 600       # 10 minutes
-    BLOCK_SECONDS = 3600        # 1 hour
+class Terms_and_condition_master(models.Model):
+    title = models.CharField(max_length=255)
+    content = models.TextField()
+    slug = models.CharField(max_length=255, unique=True, blank=True)
+    status = models.ForeignKey(StatusMaster, on_delete=models.PROTECT, default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_by = models.CharField(max_length=255, null=True, blank=True)
 
     class Meta:
-        abstract = True
+        verbose_name = "Terms and Condition"
+        verbose_name_plural = "Terms and Conditions"
+        ordering = ['-created_at']
 
-    # ========= OTP LOGIC =========
-
-    def set_otp(self, raw_otp):
-        """Save a new hashed OTP and reset block/attempt counters"""
-        now = timezone.now()
-        self.otp = make_password(raw_otp)
-        self.otp_created_at = now
-        self.otp_expired_at = now + timedelta(seconds=self.OTP_TTL_SECONDS)
-        self.attempts = 0
-        self.is_blocked_until = None
-        self.save(update_fields=[
-            'otp', 'otp_created_at', 'otp_expired_at',
-            'attempts', 'is_blocked_until', 'is_verified'
-        ])
-
-    def check_otp(self, raw_otp):
-        """Validate OTP correctness and expiry"""
-        now = timezone.now()
-
-        if not self.otp or not self.otp_expired_at:
-            return False
-
-        if now > self.otp_expired_at:
-            return False
-
-        try:
-            return check_password(str(raw_otp), self.otp)
-        except (TypeError, ValueError):
-            # This will safely handle cases where OTP is None or invalid
-            return False
-
-    def _is_blocked(self):
-        """Return remaining block seconds if still blocked, else False"""
-        if self.is_blocked_until and timezone.now() < self.is_blocked_until:
-            remaining = (self.is_blocked_until - timezone.now()).seconds
-            return remaining
-        return False
-
-    def mark_attempt(self):
-        """Track OTP verification attempts"""
-        self.attempts += 1
-        if self.attempts >= self.MAX_ATTEMPTS:
-            self.is_blocked_until = timezone.now() + timedelta(seconds=self.BLOCK_SECONDS)
-            self.attempts = 0
-        self.save(update_fields=['attempts', 'is_blocked_until'])
-
-    def can_request_new_otp(self, cooldown_seconds=60):
-        """Prevent users from spamming OTP requests"""
-        now = timezone.now()
-        if self.otp_created_at:
-            return (now - self.otp_created_at).total_seconds() > cooldown_seconds
-        return True
-
-    def mark_verified(self):
-        """Mark OTP as successfully verified"""
-        self.is_verified = True
-        self.save(update_fields=['is_verified'])
-        return True
-
-class EmailVerification(AbstractVerification):
-    email = models.EmailField(max_length=255,unique=True, blank=True, null=True)
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = ''.join(e for e in self.title.upper() if e.isalnum())
+        super().save(*args, **kwargs)
 
     def __str__(self):
-        return self.email or "Email Verification"
-        
-class PhoneVerification(AbstractVerification):
-    phone = models.CharField(max_length=12, unique=True, null=True, blank=True)
+        return f"{self.title}"
+    
+# Model For Oppvenuz ques ans master
+class Oppvenuz_ques_ans_master(models.Model):
 
-    def __str__(self):
-        return self.phone or "Phone Verification"
-
-class VenderBusinessDescription(models.Model):
-    vendor = models.ForeignKey(
-        Vendor_registration,
-        on_delete=models.CASCADE,
-        related_name='business_descriptions'
-    )
-    vendor_reg_id = models.CharField(max_length=12, db_index=True)  
-    description = models.CharField(max_length=5000)
+    question = models.CharField(max_length=2500)
+    answer = models.CharField(max_length=2500)
     status = models.IntegerField(default=1)
     created_by = models.CharField(max_length=255, null=True, blank=True)
     updated_by = models.CharField(max_length=255, null=True, blank=True)
@@ -289,93 +362,51 @@ class VenderBusinessDescription(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Description for {self.vendor_reg_id}"
+        return self.question    
 
-class ReadyToSellItem(models.Model):
-    product_name = models.CharField(max_length=255)
-    price = models.DecimalField(max_digits=10, decimal_places=2)
-    description = models.TextField(blank=True, null=True)
-    image_urls = ArrayField(models.URLField(), default=list, blank=True)
-    status = models.ForeignKey(StatusMaster, on_delete=models.PROTECT, default=1)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.CharField(max_length=255, null=True, blank=True)
-    updated_by = models.CharField(max_length=255, null=True, blank=True)
+# Model For Oppvenuz ques ans master
+class Common_setting(models.Model):
 
-    def __str__(self):
-        return self.product_name
-    
-class ProductAddition(models.Model):
-    addon_name = models.CharField(max_length=255)
-    price = models.DecimalField(max_digits=10, decimal_places=2)
-    image_urls = ArrayField(models.URLField(), default=list, blank=True)
-    status = models.ForeignKey(StatusMaster, on_delete=models.PROTECT, default=1)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.CharField(max_length=255, null=True, blank=True)
-    updated_by = models.CharField(max_length=255, null=True, blank=True)
-
-    def __str__(self):
-        return self.addon_name
-    
-class VendorService(models.Model):
-    vendor_id = models.ForeignKey(
-        Vendor_registration,
-        on_delete=models.PROTECT,
-        related_name='services',
-        null=True,
-        blank=True
-    )
-    data = models.JSONField()
-    status = models.ForeignKey(StatusMaster, on_delete=models.PROTECT, default=1)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.CharField(max_length=120, null=True, blank=True)
-    updated_by = models.CharField(max_length=120, null=True, blank=True)
-
-    def __str__(self):
-        return f"{self.vendor_id}"
-    
-class VendorSocialMedia(models.Model):
-    vendor = models.ForeignKey(
-        Vendor_registration,
-        on_delete=models.CASCADE,
-        related_name='social_media'
-    )
-    vendor_reg_id = models.CharField(max_length=12, db_index=True)
-    facebook_link = models.URLField(max_length=500, null=True, blank=True)
-    instagram_link = models.URLField(max_length=500, null=True, blank=True)
-    whatsapp_group_link = models.URLField(max_length=500, null=True, blank=True)
-    youtube_link = models.URLField(max_length=500, null=True, blank=True)
-    pinterest_link = models.URLField(max_length=500, null=True, blank=True)
+    min_photo_upload = models.IntegerField()
+    max_photo_upload = models.IntegerField()
+    min_video_upload = models.IntegerField()
+    max_video_upload = models.IntegerField()
+    min_photo_size = models.IntegerField()
+    max_photo_size = models.IntegerField()
+    min_video_size = models.IntegerField()
+    max_video_size = models.IntegerField()
+    image_format = models.CharField(max_length=500)
+    video_format = models.CharField(max_length=500)
+    min_document_upload = models.IntegerField()
+    max_document_upload = models.IntegerField()
+    document_format = models.CharField(max_length=500)
     status = models.IntegerField(default=1)
     created_by = models.CharField(max_length=255, null=True, blank=True)
     updated_by = models.CharField(max_length=255, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def save(self, *args, **kwargs):
+        if Common_setting.objects.exists() and not self.pk:
+            # Update the existing one instead of creating new
+            existing = Common_setting.objects.first()
+            self.pk = existing.pk
+        super(Common_setting, self).save(*args, **kwargs)
+     
     def __str__(self):
-        return f"Social Media for {self.vendor_reg_id}"
+        return "Common Settings"
     
-class VendorMedia(models.Model):
-    MEDIA_TYPE_CHOICES = [
-        ('IMAGE', 'Image'),
-        ('VIDEO', 'Video'),
-    ]
-
-    vendor = models.ForeignKey(
-        Vendor_registration,
-        on_delete=models.CASCADE,
-        related_name='vendor_media'
-    )
-    vendor_code = models.CharField(max_length=12, db_index=True) 
-    file_url = models.URLField(max_length=1000)
-    media_type = models.CharField(max_length=10, choices=MEDIA_TYPE_CHOICES)
-    file_name = models.CharField(max_length=255, null=True, blank=True)
-    status = models.CharField(max_length=10, default='ACTIVE')
-    created_at = models.DateTimeField(auto_now_add=True)
+class CompanyDocumentMapping(models.Model):
+    company_type = models.ForeignKey(CompanyTypeMaster, on_delete=models.CASCADE, related_name='mapped_documents')
+    document_type = models.ForeignKey(document_type, on_delete=models.CASCADE, related_name='mapped_companies')
+    status = models.PositiveSmallIntegerField(default=1)  
+    created_by = models.CharField(max_length=255, blank=True, null=True)
+    updated_by = models.CharField(max_length=255, blank=True, null=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    def __str__(self):
-        return f"{self.media_type} - {self.vendor_code}"
+    class Meta:
+        db_table = 'admin_master_company_document_mapping'
+        unique_together = ('company_type', 'document_type')
 
+    def __str__(self):
+        return f"{self.company_type.company_type} → {self.document_type.document_type}"
