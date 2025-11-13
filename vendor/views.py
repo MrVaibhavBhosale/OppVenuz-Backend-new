@@ -4,7 +4,7 @@ from django.db import transaction
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from admin_master.models import CompanyTypeMaster
+from admin_master.models import CompanyTypeMaster, StatusMaster
 from admin_master.utils import get_status
 from decouple import config
 from oauth2_provider.contrib.rest_framework.authentication import OAuth2Authentication
@@ -12,6 +12,9 @@ from vendor.authentication import VendorJWTAuthentication
 from datetime import timedelta
 import traceback
 from concurrent.futures import ThreadPoolExecutor
+from .permissions import IsVendor
+import json
+from rest_framework.exceptions import PermissionDenied
 
 from .models import (
     Vendor, 
@@ -24,6 +27,7 @@ from .models import (
     ReadyToSellItem,
     VendorSocialMedia,
     VendorMedia,
+    VendorService
 )
 
 from .serializers import (
@@ -45,6 +49,8 @@ from .serializers import (
     VendorBasicDetailsSerializer,
     VendorSocialMediaSerializer,
     VendorMediaSerializer,
+    VendorServiceSerializer
+
 )
 
 from .utils import (
@@ -1353,3 +1359,269 @@ class VendorMediaDeleteAPIView(APIView):
             return Response({"error": "Media not found"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Product Details']))
+class VendorServiceCreateAPIView(generics.CreateAPIView):
+    queryset = VendorService.objects.all()
+    serializer_class = VendorServiceSerializer
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def post(self, request, *args, **kwargs):
+        user = request.user
+
+        # Only vendors can create services
+        if not isinstance(user, Vendor_registration):
+            return Response(
+                {"message": "Only vendors can create product.", "status": False},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Parse and validate 'data'
+        service_data = request.data.get("data", {})
+        if isinstance(service_data, str):
+            try:
+                service_data = json.loads(service_data)
+            except Exception:
+                return Response({"message": "Invalid JSON for 'data' field.", "status": False}, status=400)
+        if not isinstance(service_data, dict):
+            service_data = {}
+
+        if "images" not in service_data or not isinstance(service_data["images"], list):
+            service_data["images"] = []
+
+        # Handle S3 images
+        images = request.FILES.getlist("image")
+        if images:
+            s3 = boto3.client(
+                "s3",
+                aws_access_key_id=config("s3AccessKey"),
+                aws_secret_access_key=config("s3Secret"),
+            )
+            bucket = config("S3_BUCKET_NAME")
+            for image in images:
+                key = f"vendor_services/{image.name}"
+                try:
+                    s3.upload_fileobj(
+                        Fileobj=image,
+                        Bucket=bucket,
+                        Key=key,
+                        ExtraArgs={"ACL": "public-read", "ContentType": image.content_type}
+                    )
+                    image_url = f"https://{bucket}.s3.amazonaws.com/{key}"
+                    service_data["images"].append(image_url)
+                except Exception as e:
+                    logger.error(f"S3 upload failed: {str(e)}")
+
+        # Prepare serializer input
+        serializer_input = {
+            "data": service_data,
+            "status": request.data.get("status", 1)
+        }
+
+        serializer = self.get_serializer(data=serializer_input, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        service = serializer.save()
+
+        response_serializer = self.get_serializer(service)
+        return Response({
+            "message": "Product created successfully.",
+            "data": response_serializer.data,
+            "status": True
+        }, status=status.HTTP_201_CREATED)
+    
+
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['Product Details']))
+class VendorServiceListAPIView(generics.ListAPIView):
+    serializer_class = VendorServiceSerializer
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def get_queryset(self):
+        vendor = self.request.user
+        product_id = self.kwargs.get('product_id')
+
+        if not product_id:
+            raise PermissionDenied("Product ID is required.")
+
+        try:
+            active_status = StatusMaster.objects.get(status_type__iexact='Active')
+        except StatusMaster.DoesNotExist:
+            logger.warning("[VendorServiceListAPIView] 'Active' status not found in StatusMaster")
+            raise PermissionDenied("Active status not found in the system")
+
+        # Filter by vendor, active status, and product_id inside the data JSONField
+        queryset = VendorService.objects.filter(
+            vendor_id=vendor.id,
+            status=active_status,
+            id=product_id  
+        )
+        return queryset
+
+    def list(self, request, *args, **kwargs):
+        try:
+            queryset = self.get_queryset()
+            serializer = self.get_serializer(queryset, many=True)
+            return Response({
+                "message": "product fetched successfully",
+                "data": serializer.data,
+                "status": True
+            })
+        except PermissionDenied as e:
+            logger.warning(f"[VendorServiceListAPIView] Permission denied: {str(e)}")
+            return Response({
+                "message": str(e),
+                "status": False
+            }, status=403)
+        except Exception as e:
+            logger.exception(f"[VendorServiceListAPIView] Unexpected error while listing vendor product: {str(e)}")
+            return Response({
+                "message": "An unexpected error occurred while fetching vendor Product.",
+                "error": str(e),
+                "status": False
+            }, status=500)
+
+
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Product Details']))
+class VendorServiceUpdateAPIView(generics.UpdateAPIView):
+    serializer_class = VendorServiceSerializer
+    permission_classes = [IsAuthenticated, IsVendor]  
+
+    def get_object(self):
+        vendor = self.request.user
+        product_id = self.kwargs.get('product_id')
+
+        if not product_id:
+            raise PermissionDenied("Product ID is required.")
+
+        # Get active status
+        try:
+            active_status = StatusMaster.objects.get(status_type__iexact='Active')
+        except StatusMaster.DoesNotExist:
+            raise PermissionDenied("Active status not found in the system")
+
+        # Fetch the specific service for this vendor
+        try:
+            service = VendorService.objects.get(
+                id=product_id,
+                vendor_id=vendor.id,
+                status=active_status
+            )
+        except VendorService.DoesNotExist:
+            raise PermissionDenied("Product not found for this vendor.")
+
+        return service
+
+    def update(self, request, *args, **kwargs):
+        try:
+            service = self.get_object()
+            serializer = self.get_serializer(service, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save(updated_by=request.user.username)
+
+            return Response({
+                "message": "Product updated successfully",
+                "data": serializer.data,
+                "status": True
+            })
+        except PermissionDenied as e:
+            return Response({"message": str(e), "status": False}, status=403)
+        except Exception as e:
+            logger.exception(f"[VendorServiceUpdateAPIView] Error updating vendor Product: {str(e)}")
+            return Response({
+                "message": "An unexpected error occurred while updating the Product.",
+                "error": str(e),
+                "status": False
+            }, status=500)
+
+
+@method_decorator(name='get', decorator=swagger_auto_schema(tags=['Product Details']))       
+class VendorServiceAllAPIView(generics.ListAPIView):
+    serializer_class = VendorServiceSerializer
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def get_queryset(self):
+        vendor = self.request.user
+
+        try:
+            # Get the Active status
+            active_status = StatusMaster.objects.get(status_type__iexact='Active')
+            
+            # Only return services with Active status
+            queryset = VendorService.objects.filter(vendor_id=vendor.id, status=active_status).order_by('id')
+
+        except StatusMaster.DoesNotExist:
+            # If Active status does not exist, return empty queryset
+            logger.warning("[VendorServiceAllAPIView] 'Active' status not found. Returning empty list.")
+            queryset = VendorService.objects.none()
+        except Exception as e:
+            logger.exception(f"[VendorServiceAllAPIView] Error fetching Product: {str(e)}")
+            queryset = VendorService.objects.none()
+
+        return queryset
+
+    def list(self, request, *args, **kwargs):
+        try:
+            queryset = self.get_queryset()
+            serializer = self.get_serializer(queryset, many=True)
+            return Response({
+                "message": "Active vendor Product fetched successfully",
+                "data": serializer.data,
+                "status": True
+            })
+        except Exception as e:
+            logger.exception(f"[VendorServiceAllAPIView] Unexpected error: {str(e)}")
+            return Response({
+                "message": "An unexpected error occurred while fetching vendor Product.",
+                "error": str(e),
+                "status": False
+            }, status=500)
+        
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['Product Details']))
+class VendorServiceDeleteAPIView(generics.UpdateAPIView):
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def get_object(self):
+        vendor = self.request.user
+        product_id = self.kwargs.get('product_id')
+
+        if not product_id:
+            raise PermissionDenied("Product ID is required.")
+
+        try:
+            service = VendorService.objects.get(vendor_id=vendor.id, id=product_id)
+        except VendorService.DoesNotExist:
+            raise PermissionDenied("product ID not found or you don't have permission to delete it.")
+
+        return service
+
+    def delete(self, request, *args, **kwargs):
+        try:
+            service = self.get_object()
+
+            # Get Inactive status
+            try:
+                inactive_status = StatusMaster.objects.get(status_type__iexact='Inactive')
+            except StatusMaster.DoesNotExist:
+                return Response({
+                    "message": "'Inactive' status not defined in the system.",
+                    "status": False
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            # Soft delete the service
+            service.status = inactive_status
+            service.save()
+
+            return Response({
+                "message": "Product deleted successfully",
+                "status": True
+            })
+
+        except PermissionDenied as e:
+            return Response({"message": str(e), "status": False}, status=status.HTTP_403_FORBIDDEN)
+        except Exception as e:
+            logger.exception(f"[VendorServiceSoftDeleteAPIView] Error deleting Product: {str(e)}")
+            return Response({
+                "message": "An unexpected error occurred while deleting the Product.",
+                "error": str(e),
+                "status": False
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -29,6 +29,11 @@ from .views import (
     VendorMediaUploadAPIView,
     VendorMediaListAPIView,
     VendorMediaDeleteAPIView,
+    VendorServiceCreateAPIView,
+    VendorServiceListAPIView,
+    VendorServiceUpdateAPIView,
+    VendorServiceAllAPIView,
+    VendorServiceDeleteAPIView
 )
 
 urlpatterns = [
@@ -63,5 +68,10 @@ urlpatterns = [
     path('uploadPhotosVideos/', VendorMediaUploadAPIView.as_view(), name='upload-media'),
     path('getPhotosVideos/<str:vendor_reg_id>/', VendorMediaListAPIView.as_view(), name='list-media'),
     path('deletePhotosVideos/<int:pk>/', VendorMediaDeleteAPIView.as_view(), name='delete-media'),
+    path("addproductdetails/", VendorServiceCreateAPIView.as_view(), name="add-product-details"),
+    path("getproductdetails/<int:product_id>/", VendorServiceListAPIView.as_view(), name="get-product-details"),
+    path("updateproductdetails/<int:product_id>/", VendorServiceUpdateAPIView.as_view(), name="update-product-details"),
+    path("getAllProducts/", VendorServiceAllAPIView.as_view(), name="get-all-products"),
+    path("deleteProductById/<int:product_id>/", VendorServiceDeleteAPIView.as_view(), name="delete-the-product")
 
 ]

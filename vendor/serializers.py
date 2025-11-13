@@ -11,6 +11,7 @@ from .models import (
     ProductAddition,
     VendorSocialMedia,
     VendorMedia,
+    VendorService
     )
 from django.contrib.auth import authenticate
 import re
@@ -442,3 +443,34 @@ class VendorMediaSerializer(serializers.ModelSerializer):
     class Meta:
         model = VendorMedia
         fields = "__all__"
+
+
+class VendorServiceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = VendorService
+        fields = '__all__'
+        extra_kwargs = {
+            'created_by': {'required': False},
+            'updated_by': {'required': False},
+            'vendor_id': {'required': False},  
+        }
+
+    def validate_data(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Data must be a JSON object")
+        return value
+
+    def create(self, validated_data):
+        # Automatically set vendor_id from request.user
+        request = self.context.get('request')
+        if request and hasattr(request.user, 'vendor_registration'):
+            validated_data['vendor_id'] = request.user.vendor_registration
+        elif request and isinstance(request.user, Vendor_registration):
+            validated_data['vendor_id'] = request.user
+        else:
+            raise serializers.ValidationError("Vendor not found for this user.")
+
+        validated_data['created_by'] = request.user.email if request.user else None
+        validated_data['updated_by'] = request.user.email if request.user else None
+
+        return super().create(validated_data)

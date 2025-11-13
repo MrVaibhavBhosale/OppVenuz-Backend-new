@@ -4,6 +4,7 @@ from django.contrib.auth.hashers import check_password
 from django.contrib.auth.hashers import make_password
 from django.contrib.postgres.fields import ArrayField
 from admin_master.models import (
+    Service_master,
     State_master,
     City_master, 
     Best_suited_for,
@@ -108,6 +109,7 @@ class Vendor_registration(models.Model):
         return False
     
     USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = []
 
     @property
     def username(self):
@@ -377,4 +379,3 @@ class VendorMedia(models.Model):
 
     def __str__(self):
         return f"{self.media_type} - {self.vendor_code}"
-
