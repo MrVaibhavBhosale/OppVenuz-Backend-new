@@ -3,14 +3,17 @@ import os
 from dotenv import load_dotenv
 from datetime import timedelta
 
-# Load .env file 
+# Load .env
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve(strict=True).parent.parent
 
-# Security
+# ===============================================================
+# 🔐 SECURITY
+# ===============================================================
 SECRET_KEY = os.getenv('SECRET_KEY', 'dummy-secret-key')
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
+
 ALLOWED_HOSTS = [
     "oppvenuz-backend.onrender.com",
     "oppvenuz-backend-new.onrender.com",
@@ -18,19 +21,25 @@ ALLOWED_HOSTS = [
     "127.0.0.1"
 ]
 
-# Email / SMS Config
+# ===============================================================
+# 📩 EMAIL / SMS
+# ===============================================================
 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
 TEXT_LOCAL_API_KEY = os.getenv("TEXT_LOCAL_API_KEY")
 TEXTLOCAL_SENDER = os.getenv("TEXTLOCAL_SENDER", "OPPVNZ")
 
-# Authentication
+# ===============================================================
+# 🔐 AUTHENTICATION
+# ===============================================================
 AUTHENTICATION_BACKENDS = [
     'vendor.auth_backend.VendorAuthBackend',
     'django.contrib.auth.backends.ModelBackend',
 ]
 
-# Application definition
+# ===============================================================
+# 🧩 INSTALLED APPS
+# ===============================================================
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -38,22 +47,40 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+
     'drf_yasg',
-    'admin_master',
     'rest_framework',
     "oauth2_provider",
+
+    'admin_master',
     'vendor',
     'user',
 ]
 
+# ===============================================================
+# 🔧 DRF CONFIG
+# ===============================================================
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
+
+    # Browsable API errors solved (CSS/JS loading)
+    "DEFAULT_RENDERER_CLASSES": [
+        "rest_framework.renderers.JSONRenderer",
+        "rest_framework.renderers.BrowsableAPIRenderer",
+    ],
 }
 
+# ===============================================================
+# 🧱 MIDDLEWARE (WhiteNoise added)
+# ===============================================================
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+
+    # MUST for Render Static Files
+    'whitenoise.middleware.WhiteNoiseMiddleware',
+
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -64,7 +91,9 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'config.urls'
 
-# Templates (for admin + Swagger)
+# ===============================================================
+# 🖥️ TEMPLATES
+# ===============================================================
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -83,18 +112,9 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-# Swagger settings
-SWAGGER_SETTINGS = {
-    'SECURITY_DEFINITIONS': {
-        'Bearer': {
-            'type': 'apiKey',
-            'name': 'Authorization',
-            'in': 'header'
-        }
-    },
-}
-
-# Database
+# ===============================================================
+# 🗃 DATABASE
+# ===============================================================
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -106,7 +126,9 @@ DATABASES = {
     }
 }
 
-# Password validation
+# ===============================================================
+# 🔐 PASSWORD RULES
+# ===============================================================
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
@@ -114,39 +136,52 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-# Internationalization
+# ===============================================================
+# 🌐 INTERNATIONALIZATION
+# ===============================================================
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_L10N = True
 USE_TZ = True
 
-# Static & Media files
+# ===============================================================
+# 📁 STATIC & MEDIA FILES (Render Ready)
+# ===============================================================
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
+# Local static folder (optional)
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, "static"),
+]
+
+# WhiteNoise storage optimization
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
 MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
-# File upload limits
-DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50 MB
-FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50 MB
+# ===============================================================
+# 📦 UPLOAD LIMITS
+# ===============================================================
+DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800
+FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800
 
-# JWT configuration
+# ===============================================================
+# 🔑 JWT CONFIG
+# ===============================================================
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
 }
 
 # ===============================================================
-# ✅ LOGGING CONFIGURATION (auto local folders + console for Render)
+# 🪵 LOGGING
 # ===============================================================
-
 if DEBUG:
-    # Local file-based logging
     LOGGING_DIR = os.path.join(BASE_DIR, "log")
 
-    # Create necessary log folders automatically
     os.makedirs(os.path.join(LOGGING_DIR, "debug_logs"), exist_ok=True)
     os.makedirs(os.path.join(LOGGING_DIR, "info_logs"), exist_ok=True)
     os.makedirs(os.path.join(LOGGING_DIR, "warning_logs"), exist_ok=True)
@@ -213,30 +248,16 @@ if DEBUG:
     }
 
 else:
-    # Render / Production: console-based logging
     LOGGING = {
         'version': 1,
         'disable_existing_loggers': False,
-        'formatters': {
-            'standard': {
-                'format': '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-            },
-        },
         'handlers': {
             'console': {
                 'class': 'logging.StreamHandler',
-                'formatter': 'standard',
             },
         },
         'root': {
             'handlers': ['console'],
             'level': 'INFO',
-        },
-        'loggers': {
-            'django': {
-                'handlers': ['console'],
-                'level': 'INFO',
-                'propagate': False,
-            },
         },
     }
