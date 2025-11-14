@@ -1,67 +1,29 @@
-import os
 from pathlib import Path
-from decouple import config
+import os
+from dotenv import load_dotenv
+from datetime import timedelta
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+# Load .env file
+load_dotenv()
 
-SECRET_KEY = config("SECRET_KEY")
+BASE_DIR = Path(__file__).resolve(strict=True).parent.parent
 
+# Security
+SECRET_KEY = os.getenv('SECRET_KEY', 'dummy-secret-key')
 DEBUG = False
+ALLOWED_HOSTS = ["OppVenuz-Backend-new.onrender.com"]
 
-ALLOWED_HOSTS = [
-    "*",
+SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
+TEXT_LOCAL_API_KEY = os.getenv("TEXT_LOCAL_API_KEY")
+TEXTLOCAL_SENDER = os.getenv("TEXTLOCAL_SENDER", "OPPVNZ")
+
+AUTHENTICATION_BACKENDS = [
+    'vendor.auth_backend.VendorAuthBackend',
+    'django.contrib.auth.backends.ModelBackend',
 ]
 
-# -----------------------------
-# STATIC FILES (REQUIRED FOR RENDER)
-# -----------------------------
-STATIC_URL = '/static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'static')
-
-# -----------------------------
-# MEDIA FILES (if needed later)
-# -----------------------------
-MEDIA_URL = "/media/"
-MEDIA_ROOT = os.path.join(BASE_DIR, "media")
-
-# -----------------------------
-# AMAZON S3 CONFIG (Boto3)
-# -----------------------------
-AWS_ACCESS_KEY_ID = config("s3AccessKey")
-AWS_SECRET_ACCESS_KEY = config("s3Secret")
-AWS_STORAGE_BUCKET_NAME = config("S3_BUCKET_NAME")
-AWS_S3_REGION_NAME = "ap-south-1"
-
-AWS_S3_CUSTOM_DOMAIN = f"{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com"
-
-# Upload folder inside bucket
-AWS_LOCATION = "uploads"
-
-# Final media URL (your S3 URL)
-MEDIA_URL = f"https://{AWS_S3_CUSTOM_DOMAIN}/{AWS_LOCATION}/"
-
-DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
-
-# -----------------------------
-# DATABASE (Render uses Postgres)
-# -----------------------------
-import dj_database_url
-
-DATABASES = {
-    "default": dj_database_url.config(
-        default=config("DATABASE_URL"),
-        conn_max_age=600
-    )
-}
-
-# -----------------------------
-# CORS (important for React/Next)
-# -----------------------------
-CORS_ALLOW_ALL_ORIGINS = True
-
-# -----------------------------
-# INSTALLED_APPS
-# -----------------------------
+# Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -69,23 +31,23 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-
-    # Third party
-    'rest_framework',
-    'corsheaders',
-    'storages',
-
-    # Your apps
+    'drf_yasg',
     'admin_master',
+    'rest_framework',
+    "oauth2_provider",
     'vendor',
     'user',
-    'utilities',
 ]
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ),
+}
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -95,4 +57,151 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'config.urls'
 
+# ✅ Required for Django Admin and Swagger UI
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [os.path.join(BASE_DIR, 'templates')],
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.debug',
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+            ],
+        },
+    },
+]
+
 WSGI_APPLICATION = 'config.wsgi.application'
+
+# ✅ Swagger security settings
+SWAGGER_SETTINGS = {
+    'SECURITY_DEFINITIONS': {
+        'Bearer': {
+            'type': 'apiKey',
+            'name': 'Authorization',
+            'in': 'header'
+        }
+    },
+}
+
+# ✅ Database - Render environment variables
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('DB_NAME'),
+        'USER': os.getenv('DB_USER'),
+        'PASSWORD': os.getenv('DB_PASSWORD'),
+        'HOST': os.getenv('DB_HOST'),
+        'PORT': os.getenv('DB_PORT'),
+    }
+}
+
+# ✅ Password validators
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+    },
+]
+
+# ✅ Internationalization
+LANGUAGE_CODE = 'en-us'
+TIME_ZONE = 'UTC'
+USE_I18N = True
+USE_L10N = True
+USE_TZ = True
+
+# ✅ Static files for Render Deployment
+STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
+
+# ✅ Media file settings (Render persistent storage)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# Render server वर persistent disk असेल तर (recommended):
+# MEDIA_ROOT = '/opt/render/project/src/media'
+
+# ✅ File upload limit (optional)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50 MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50 MB
+
+
+# ✅ JWT Token lifetime
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+}
+
+# ✅ Logging (from your old file)
+LOGGING_DIR = os.path.join(BASE_DIR, "log")
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "standard": {
+            "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+        },
+    },
+    "handlers": {
+        "debug": {
+            "level": "DEBUG",
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": os.path.join(LOGGING_DIR, "debug_logs/debug.log"),
+            "backupCount": 10,
+            "maxBytes": 5*1024*1024,
+            "formatter": "standard",
+        },
+        "info": {
+            "level": "INFO",
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": os.path.join(LOGGING_DIR, "info_logs/info.log"),
+            "backupCount": 10,
+            "maxBytes": 5*1024*1024,
+            "formatter": "standard",
+        },
+        "warning": {
+            "level": "WARNING",
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": os.path.join(LOGGING_DIR, "warning_logs/warning.log"),
+            "backupCount": 10,
+            "maxBytes": 5*1024*1024,
+            "formatter": "standard",
+        },
+        "error": {
+            "level": "ERROR",
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": os.path.join(LOGGING_DIR, "error_logs/error.log"),
+            "backupCount": 10,
+            "maxBytes": 5*1024*1024,
+            "formatter": "standard",
+        },
+        "critical": {
+            "level": "CRITICAL",
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": os.path.join(LOGGING_DIR, "critical_logs/critical.log"),
+            "backupCount": 10,
+            "maxBytes": 5*1024*1024,
+            "formatter": "standard",
+        },
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["debug", "info", "warning", "error", "critical"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+    },
+}
