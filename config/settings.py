@@ -18,10 +18,33 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
 TEXT_LOCAL_API_KEY = os.getenv("TEXT_LOCAL_API_KEY")
 TEXTLOCAL_SENDER = os.getenv("TEXTLOCAL_SENDER", "OPPVNZ")
 
+# Authentication
 AUTHENTICATION_BACKENDS = [
-    'vendor.auth_backend.VendorAuthBackend',
-    'django.contrib.auth.backends.ModelBackend',
+    'vendor.auth_backend.VendorAuthBackend',       # Custom vendor backend
+    'django.contrib.auth.backends.ModelBackend',   # Default backend
 ]
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "vendor.authentication.VendorJWTAuthentication",  # Custom JWT auth
+        "rest_framework_simplejwt.authentication.JWTAuthentication",  # Fallback
+    ),
+}
+
+# Simple JWT settings
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
+    'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
+    'TOKEN_TYPE_CLAIM': 'token_type',
+}
 
 # Application definition
 INSTALLED_APPS = [
@@ -37,27 +60,23 @@ INSTALLED_APPS = [
     "oauth2_provider",
     'vendor',
     'user',
+    'corsheaders',
 ]
-
-REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
-    ),
-}
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware',  
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'config.middleware.swagger_auto_bearer',
 ]
 
 ROOT_URLCONF = 'config.urls'
 
-# ✅ Required for Django Admin and Swagger UI
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -76,7 +95,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-# ✅ Swagger security settings
+# Swagger settings
 SWAGGER_SETTINGS = {
     'SECURITY_DEFINITIONS': {
         'Bearer': {
@@ -85,9 +104,12 @@ SWAGGER_SETTINGS = {
             'in': 'header'
         }
     },
+    'SECURITY_REQUIREMENTS': [{'Bearer': []}],
+    'USE_SESSION_AUTH': False,
+    'SHOW_REQUEST_HEADERS': True,
 }
 
-# ✅ Database - Render environment variables
+# Database
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -99,109 +121,65 @@ DATABASES = {
     }
 }
 
-# ✅ Password validators
+# Password validation
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',},
 ]
 
-# ✅ Internationalization
+# Internationalization
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_L10N = True
 USE_TZ = True
 
-# ✅ Static files for Render Deployment
+# Static and media files
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
-# ✅ Media file settings (Render persistent storage)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-# Render server वर persistent disk असेल तर (recommended):
-# MEDIA_ROOT = '/opt/render/project/src/media'
-
-# ✅ File upload limit (optional)
+# Upload limits
 DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50 MB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50 MB
 
-
-# ✅ JWT Token lifetime
-SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
-}
-
-# ✅ Logging (from your old file)
+# Logging
 LOGGING_DIR = os.path.join(BASE_DIR, "log")
-
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "standard": {
-            "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-        },
+        "standard": {"format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s"},
     },
     "handlers": {
-        "debug": {
-            "level": "DEBUG",
-            "class": "logging.handlers.RotatingFileHandler",
-            "filename": os.path.join(LOGGING_DIR, "debug_logs/debug.log"),
-            "backupCount": 10,
-            "maxBytes": 5*1024*1024,
-            "formatter": "standard",
-        },
-        "info": {
-            "level": "INFO",
-            "class": "logging.handlers.RotatingFileHandler",
-            "filename": os.path.join(LOGGING_DIR, "info_logs/info.log"),
-            "backupCount": 10,
-            "maxBytes": 5*1024*1024,
-            "formatter": "standard",
-        },
-        "warning": {
-            "level": "WARNING",
-            "class": "logging.handlers.RotatingFileHandler",
-            "filename": os.path.join(LOGGING_DIR, "warning_logs/warning.log"),
-            "backupCount": 10,
-            "maxBytes": 5*1024*1024,
-            "formatter": "standard",
-        },
-        "error": {
-            "level": "ERROR",
-            "class": "logging.handlers.RotatingFileHandler",
-            "filename": os.path.join(LOGGING_DIR, "error_logs/error.log"),
-            "backupCount": 10,
-            "maxBytes": 5*1024*1024,
-            "formatter": "standard",
-        },
-        "critical": {
-            "level": "CRITICAL",
-            "class": "logging.handlers.RotatingFileHandler",
-            "filename": os.path.join(LOGGING_DIR, "critical_logs/critical.log"),
-            "backupCount": 10,
-            "maxBytes": 5*1024*1024,
-            "formatter": "standard",
-        },
+        "debug": {"level": "DEBUG", "class": "logging.handlers.RotatingFileHandler",
+                  "filename": os.path.join(LOGGING_DIR, "debug_logs/debug.log"), "backupCount": 10,
+                  "maxBytes": 5*1024*1024, "formatter": "standard"},
+        "info": {"level": "INFO", "class": "logging.handlers.RotatingFileHandler",
+                 "filename": os.path.join(LOGGING_DIR, "info_logs/info.log"), "backupCount": 10,
+                 "maxBytes": 5*1024*1024, "formatter": "standard"},
+        "warning": {"level": "WARNING", "class": "logging.handlers.RotatingFileHandler",
+                    "filename": os.path.join(LOGGING_DIR, "warning_logs/warning.log"), "backupCount": 10,
+                    "maxBytes": 5*1024*1024, "formatter": "standard"},
+        "error": {"level": "ERROR", "class": "logging.handlers.RotatingFileHandler",
+                  "filename": os.path.join(LOGGING_DIR, "error_logs/error.log"), "backupCount": 10,
+                  "maxBytes": 5*1024*1024, "formatter": "standard"},
+        "critical": {"level": "CRITICAL", "class": "logging.handlers.RotatingFileHandler",
+                     "filename": os.path.join(LOGGING_DIR, "critical_logs/critical.log"), "backupCount": 10,
+                     "maxBytes": 5*1024*1024, "formatter": "standard"},
     },
     "loggers": {
-        "django": {
-            "handlers": ["debug", "info", "warning", "error", "critical"],
-            "level": "DEBUG",
-            "propagate": False,
-        },
+        "django": {"handlers": ["debug","info","warning","error","critical"], "level": "INFO", "propagate": False},
     },
 }
+
+# CORS
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+CORS_ALLOW_CREDENTIALS = True
