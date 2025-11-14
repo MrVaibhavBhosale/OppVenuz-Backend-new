@@ -20,7 +20,7 @@ TEXTLOCAL_SENDER = os.getenv("TEXTLOCAL_SENDER", "OPPVNZ")
 
 # Authentication
 AUTHENTICATION_BACKENDS = [
-    'vendor.auth_backend.VendorAuthBackend',       # Custom vendor backend
+    'vendor.backends.VendorAuthBackend',       # Custom vendor backend
     'django.contrib.auth.backends.ModelBackend',   # Default backend
 ]
 
