@@ -130,8 +130,10 @@ urllib3==1.26.13
 wcwidth==0.2.13
 wrapt==1.14.1
 user-agents==2.2.0
+whitenoise==6.6.0
 yarl==1.8.2
 gunicorn==21.2.0
+
 
 
 
