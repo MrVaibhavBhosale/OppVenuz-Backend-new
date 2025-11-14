@@ -11,7 +11,7 @@ BASE_DIR = Path(__file__).resolve(strict=True).parent.parent
 # Security
 SECRET_KEY = os.getenv('SECRET_KEY', 'dummy-secret-key')
 DEBUG = False
-ALLOWED_HOSTS = ["OppVenuz-Backend-new.onrender.com", "localhost", "127.0.0.1"]
+ALLOWED_HOSTS = ["OppVenuz-Backend-new.onrender.com"]
 
 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
@@ -31,14 +31,10 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-
-    # Third-party
     'drf_yasg',
+    'admin_master',
     'rest_framework',
     "oauth2_provider",
-
-    # Custom
-    'admin_master',
     'vendor',
     'user',
 ]
@@ -51,8 +47,6 @@ REST_FRAMEWORK = {
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware', 
-
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -63,7 +57,7 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'config.urls'
 
-# Templates (Required for admin + swagger)
+# ✅ Required for Django Admin and Swagger UI
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -82,7 +76,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-# Swagger Auth
+# ✅ Swagger security settings
 SWAGGER_SETTINGS = {
     'SECURITY_DEFINITIONS': {
         'Bearer': {
@@ -93,7 +87,7 @@ SWAGGER_SETTINGS = {
     },
 }
 
-# Database (Render)
+# ✅ Database - Render environment variables
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -105,61 +99,54 @@ DATABASES = {
     }
 }
 
-# Password validation
+# ✅ Password validators
 AUTH_PASSWORD_VALIDATORS = [
-    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
-    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
-    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
-    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
+    {
+        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+    },
 ]
 
-# Internationalization
+# ✅ Internationalization
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_L10N = True
 USE_TZ = True
 
-# Static files (Render)
+# ✅ Static files for Render Deployment
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
-# Media
+# ✅ Media file settings (Render persistent storage)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
-# For persistent disk on Render:
+
+# Render server वर persistent disk असेल तर (recommended):
 # MEDIA_ROOT = '/opt/render/project/src/media'
 
-# Upload size limits
+# ✅ File upload limit (optional)
 DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50 MB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50 MB
 
-# JWT lifetime
+
+# ✅ JWT Token lifetime
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
 }
 
-# ============================
-# Create Logging Directories
-# ============================
+# ✅ Logging (from your old file)
 LOGGING_DIR = os.path.join(BASE_DIR, "log")
 
-LOGGING_BASE_DIRS = [
-    LOGGING_DIR,
-    os.path.join(LOGGING_DIR, "debug_logs"),
-    os.path.join(LOGGING_DIR, "info_logs"),
-    os.path.join(LOGGING_DIR, "warning_logs"),
-    os.path.join(LOGGING_DIR, "error_logs"),
-    os.path.join(LOGGING_DIR, "critical_logs"),
-]
-
-for directory in LOGGING_BASE_DIRS:
-    os.makedirs(directory, exist_ok=True)
-
-# ============================
-# Logging Configuration
-# ============================
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
