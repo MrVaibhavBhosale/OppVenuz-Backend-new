@@ -11,7 +11,7 @@ BASE_DIR = Path(__file__).resolve(strict=True).parent.parent
 # Security
 SECRET_KEY = os.getenv('SECRET_KEY', 'dummy-secret-key')
 DEBUG = False
-ALLOWED_HOSTS = ["OppVenuz-Backend-new.onrender.com"]
+ALLOWED_HOSTS = ["OppVenuz-Backend-new.onrender.com", "localhost", "127.0.0.1"]
 
 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
@@ -31,10 +31,14 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+
+    # Third-party
     'drf_yasg',
-    'admin_master',
     'rest_framework',
     "oauth2_provider",
+
+    # Custom
+    'admin_master',
     'vendor',
     'user',
 ]
@@ -57,7 +61,7 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'config.urls'
 
-# ✅ Required for Django Admin and Swagger UI
+# Templates (Required for admin + swagger)
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -76,7 +80,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-# ✅ Swagger security settings
+# Swagger Auth
 SWAGGER_SETTINGS = {
     'SECURITY_DEFINITIONS': {
         'Bearer': {
@@ -87,7 +91,7 @@ SWAGGER_SETTINGS = {
     },
 }
 
-# ✅ Database - Render environment variables
+# Database (Render)
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -99,54 +103,61 @@ DATABASES = {
     }
 }
 
-# ✅ Password validators
+# Password validation
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-# ✅ Internationalization
+# Internationalization
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_L10N = True
 USE_TZ = True
 
-# ✅ Static files for Render Deployment
+# Static files (Render)
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
-# ✅ Media file settings (Render persistent storage)
+# Media
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
-
-# Render server वर persistent disk असेल तर (recommended):
+# For persistent disk on Render:
 # MEDIA_ROOT = '/opt/render/project/src/media'
 
-# ✅ File upload limit (optional)
+# Upload size limits
 DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50 MB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50 MB
 
-
-# ✅ JWT Token lifetime
+# JWT lifetime
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
 }
 
-# ✅ Logging (from your old file)
+# ============================
+# Create Logging Directories
+# ============================
 LOGGING_DIR = os.path.join(BASE_DIR, "log")
 
+LOGGING_BASE_DIRS = [
+    LOGGING_DIR,
+    os.path.join(LOGGING_DIR, "debug_logs"),
+    os.path.join(LOGGING_DIR, "info_logs"),
+    os.path.join(LOGGING_DIR, "warning_logs"),
+    os.path.join(LOGGING_DIR, "error_logs"),
+    os.path.join(LOGGING_DIR, "critical_logs"),
+]
+
+for directory in LOGGING_BASE_DIRS:
+    os.makedirs(directory, exist_ok=True)
+
+# ============================
+# Logging Configuration
+# ============================
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
