@@ -11,7 +11,12 @@ BASE_DIR = Path(__file__).resolve(strict=True).parent.parent
 # Security
 SECRET_KEY = os.getenv('SECRET_KEY', 'dummy-secret-key')
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
-ALLOWED_HOSTS = ["oppvenuz-backend.onrender.com", "localhost", "127.0.0.1"]
+ALLOWED_HOSTS = [
+    "oppvenuz-backend.onrender.com",
+    "oppvenuz-backend-new.onrender.com",
+    "localhost",
+    "127.0.0.1"
+]
 
 # Email / SMS Config
 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
