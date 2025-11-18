@@ -1263,7 +1263,7 @@ class BaseAPIView(APIView):
             # ------------------- Add Cities under States -------------------
             for state in states:
                 state_id = state.get('id')
-                cities = City_master.objects.filter(state_id=state_id, status=1).values('id', 'city_name', 'status')
+                cities = City_master.objects.filter(state_id=state_id, status=1).values('id', 'city_name', 'status','latitude', 'longitude')
                 state['cities'] = list(cities)
 
             # ------------------- Company Types with Documents -------------------
