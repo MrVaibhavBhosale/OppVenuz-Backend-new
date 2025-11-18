@@ -54,6 +54,8 @@ class City_master(models.Model):
     )
     city_name = models.CharField(max_length=255)
     pincode = models.IntegerField()
+    latitude = models.DecimalField(max_digits=10, decimal_places=7, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=10, decimal_places=7, null=True, blank=True)
     status = models.IntegerField(default=1)
 
     created_by = models.CharField(max_length=255, null=True, blank=True)
