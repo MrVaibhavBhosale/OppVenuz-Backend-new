@@ -474,3 +474,36 @@ class VendorServiceSerializer(serializers.ModelSerializer):
         validated_data['updated_by'] = request.user.email if request.user else None
 
         return super().create(validated_data)
+
+class VendorContactUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Vendor_registration
+        fields = ['contact_no', 'whatsapp_no', 'email']
+        extra_kwargs = {
+            'contact_no': {'required': False},
+            'whatsapp_no': {'required': False},
+            'email': {'required': False},
+        }
+
+    def validate(self, attrs):
+        instance = self.instance
+        
+        # Email unique validation
+        if 'email' in attrs:
+            email = attrs['email']
+            if Vendor_registration.objects.exclude(pk=instance.pk).filter(email=email).exists():
+                raise serializers.ValidationError({"email": "Email already exists."})
+
+        # Contact unique validation
+        if 'contact_no' in attrs:
+            c_no = attrs['contact_no']
+            if Vendor_registration.objects.exclude(pk=instance.pk).filter(contact_no=c_no).exists():
+                raise serializers.ValidationError({"contact_no": "Contact number already exists."})
+
+        # WhatsApp unique validation
+        if 'whatsapp_no' in attrs:
+            w_no = attrs['whatsapp_no']
+            if Vendor_registration.objects.exclude(pk=instance.pk).filter(whatsapp_no=w_no).exists():
+                raise serializers.ValidationError({"whatsapp_no": "WhatsApp number already exists."})
+
+        return attrs
