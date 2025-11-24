@@ -49,7 +49,9 @@ from .serializers import (
     VendorBasicDetailsSerializer,
     VendorSocialMediaSerializer,
     VendorMediaSerializer,
-    VendorServiceSerializer
+    VendorServiceSerializer,
+    VendorContactUpdateSerializer,
+
 
 )
 
@@ -1625,3 +1627,25 @@ class VendorServiceDeleteAPIView(generics.UpdateAPIView):
                 "error": str(e),
                 "status": False
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class VendorContactUpdateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request):
+        vendor = request.user 
+
+        serializer = VendorContactUpdateSerializer(
+            vendor,
+            data=request.data,
+            partial=True
+        )
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                "message": "Contact Information Updated Successfully",
+                "data": serializer.data
+            }, status=status.HTTP_200_OK)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
