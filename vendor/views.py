@@ -27,7 +27,8 @@ from .models import (
     ReadyToSellItem,
     VendorSocialMedia,
     VendorMedia,
-    VendorService
+    VendorService,
+    CelebrityBanner,
 )
 
 from .serializers import (
@@ -51,7 +52,7 @@ from .serializers import (
     VendorMediaSerializer,
     VendorServiceSerializer,
     VendorContactUpdateSerializer,
-
+    CelebrityBannerSerializer,
 
 )
 
@@ -1648,3 +1649,142 @@ class VendorContactUpdateAPIView(APIView):
             }, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class CreateCelebrityBannerAPIView(APIView):
+    permission_classes = ()
+    authentication_classes = [VendorJWTAuthentication]
+    def post(self, request):
+        try:
+            title = request.data.get("title")
+            image = request.FILES.get("image")
+
+            if not title or not image:
+                return Response({"error": "Title & image are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # S3 config
+            s3 = boto3.client(
+                "s3",
+                aws_access_key_id=config("s3AccessKey"),
+                aws_secret_access_key=config("s3Secret")
+            )
+            bucket = config("S3_BUCKET_NAME")
+
+            # Unique filename
+            ext = os.path.splitext(image.name)[1]
+            unique_name = f"{uuid.uuid4().hex}{ext}"
+            key = f"celebrity_banners/{unique_name}"
+
+            # Upload
+            s3.upload_fileobj(image, bucket, key, ExtraArgs={"ACL": "public-read"})
+            image_url = f"https://{bucket}.s3.amazonaws.com/{key}"
+
+            # Save in DB
+            banner = CelebrityBanner.objects.create(title=title, image=image_url)
+
+            return Response({
+                "message": "Banner created successfully",
+                "banner": CelebrityBannerSerializer(banner).data
+            }, status=201)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+class UpdateCelebrityBannerAPIView(APIView):
+    permission_classes = ()
+    authentication_classes = (OAuth2Authentication, JWTAuthentication)
+
+    def put(self, request, pk):
+        try:
+            try:
+                banner = CelebrityBanner.objects.get(id=pk)
+            except CelebrityBanner.DoesNotExist:
+                return Response({"error": "Banner not found"}, status=404)
+
+            title = request.data.get("title")
+            new_image = request.FILES.get("image")
+
+            if title:
+                banner.title = title
+
+            bucket = config("S3_BUCKET_NAME")
+
+            # If new image uploaded
+            if new_image:
+                # delete old
+                try:
+                    old_key = banner.image.split(f"https://{bucket}.s3.amazonaws.com/")[1]
+                    s3 = boto3.client(
+                        "s3",
+                        aws_access_key_id=config("s3AccessKey"),
+                        aws_secret_access_key=config("s3Secret")
+                    )
+                    s3.delete_object(Bucket=bucket, Key=old_key)
+                except:
+                    pass  # ignore delete errors
+
+                # upload new
+                s3 = boto3.client(
+                    "s3",
+                    aws_access_key_id=config("s3AccessKey"),
+                    aws_secret_access_key=config("s3Secret")
+                )
+                ext = os.path.splitext(new_image.name)[1]
+                unique_name = f"{uuid.uuid4().hex}{ext}"
+                new_key = f"celebrity_banners/{unique_name}"
+
+                s3.upload_fileobj(new_image, bucket, new_key, ExtraArgs={"ACL": "public-read"})
+                new_url = f"https://{bucket}.s3.amazonaws.com/{new_key}"
+
+                banner.image = new_url
+
+            banner.save()
+
+            return Response({
+                "message": "Banner updated successfully",
+                "banner": CelebrityBannerSerializer(banner).data
+            })
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+class DeleteCelebrityBannerAPIView(APIView):
+    permission_classes = ()
+    authentication_classes = (OAuth2Authentication, JWTAuthentication)
+
+    def delete(self, request, pk):
+        try:
+            try:
+                banner = CelebrityBanner.objects.get(id=pk)
+            except CelebrityBanner.DoesNotExist:
+                return Response({"error": "Banner not found"}, status=404)
+
+            bucket = config("S3_BUCKET_NAME")
+
+            # Delete S3 image
+            try:
+                key = banner.image.split(f"https://{bucket}.s3.amazonaws.com/")[1]
+                s3 = boto3.client(
+                    "s3",
+                    aws_access_key_id=config("s3AccessKey"),
+                    aws_secret_access_key=config("s3Secret")
+                )
+                s3.delete_object(Bucket=bucket, Key=key)
+            except:
+                pass
+
+            banner.delete()
+
+            return Response({"message": "Banner deleted successfully"})
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+class GetAllCelebrityBannerAPIView(APIView):
+    permission_classes = ()
+    authentication_classes = (OAuth2Authentication, JWTAuthentication)
+
+    def get(self, request):
+        try:
+            banners = CelebrityBanner.objects.all().order_by("-id")
+            serializer = CelebrityBannerSerializer(banners, many=True)
+            return Response(serializer.data)
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
