@@ -11,7 +11,8 @@ from .models import (
     ProductAddition,
     VendorSocialMedia,
     VendorMedia,
-    VendorService
+    VendorService,
+    CelebrityBanner,
     )
 from django.contrib.auth import authenticate
 import re
@@ -507,3 +508,8 @@ class VendorContactUpdateSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"whatsapp_no": "WhatsApp number already exists."})
 
         return attrs
+
+class CelebrityBannerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CelebrityBanner
+        fields = "__all__"
