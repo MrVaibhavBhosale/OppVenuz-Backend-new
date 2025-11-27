@@ -30,6 +30,7 @@ from .models import (
     VendorService,
     CelebrityBanner,
     BestDealBanner,
+    ProductAddition,
 )
 
 from .serializers import (
@@ -55,6 +56,7 @@ from .serializers import (
     VendorContactUpdateSerializer,
     CelebrityBannerSerializer,
     BestDealBannerSerializer,
+    ProductAdditionSerializer,
 
 )
 
@@ -1900,3 +1902,221 @@ class DeleteBestDealBannerAPIView(APIView):
             return Response({"message": "Banner deleted successfully"}, status=200)
         except BestDealBanner.DoesNotExist:
             return Response({"error": "Banner not found"}, status=404)
+
+class GetVendorBannerAPIView(APIView):
+    permission_classes = ()
+    authentication_classes = [VendorJWTAuthentication]
+
+    def get(self, request):
+        try:
+            vendor = request.user  # current logged-in vendor
+
+            # Latest Celebrity Banner
+            celebrity = CelebrityBanner.objects.order_by('-id').first()
+            celebrity_url = celebrity.image if celebrity else None
+
+            # Latest Best Deal Banner
+            best_deal = BestDealBanner.objects.order_by('-id').first()
+            best_deal_url = best_deal.image if best_deal else None
+
+            return Response({
+                "business_name": vendor.business_name,
+                "celebrity_banner": celebrity_url,
+                "best_deal_banner": best_deal_url
+            }, status=200)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+
+class ProductAdditionBaseView(APIView):
+    def upload_to_s3(self, file_obj):
+        """Uploads image to S3 and returns URL."""
+        s3 = boto3.client(
+            "s3",
+            aws_access_key_id=config("s3AccessKey"),
+            aws_secret_access_key=config("s3Secret"),
+        )
+        bucket = config("S3_BUCKET_NAME")
+        key = f"product_additions/{file_obj.name}"
+        s3.upload_fileobj(file_obj, bucket, key, ExtraArgs={"ACL": "public-read"})
+        return f"https://{bucket}.s3.amazonaws.com/{key}"
+
+
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['product_additions']))
+class CreateProductAdditionView(ProductAdditionBaseView):
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    def post(self, request):
+
+        addon_name = request.data.get("addon_name")
+        price = request.data.get("price")
+        description = request.data.get("description", "")
+        files = request.FILES.getlist("images")
+
+        if not addon_name or not price:
+            return Response({
+                "status": False,
+                "message": "Addon name and price are required.",
+                "data": None,
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        allowed_ext = (".png", ".jpg", ".jpeg", ".gif")
+        invalid_files = [f.name for f in files if not f.name.lower().endswith(allowed_ext)]
+        if invalid_files:
+            return Response({
+                "status": False,
+                "message": f"Invalid file type(s): {', '.join(invalid_files)}. Only images are allowed.",
+                "data": None,
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        uploaded_urls = []
+        if files:
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = [executor.submit(self.upload_to_s3, f) for f in files]
+                for future in futures:
+                    uploaded_urls.append(future.result())
+
+        status_obj = get_status("Active")
+        addition = ProductAddition.objects.create(
+            addon_name=addon_name.strip(),
+            price=price,
+            image_urls=uploaded_urls,
+            status=status_obj,
+        )
+
+        return Response({
+            "status": True,
+            "message": "Product addition created successfully.",
+            "data": ProductAdditionSerializer(addition).data,
+        }, status=status.HTTP_201_CREATED)
+
+
+@method_decorator(name="get", decorator=swagger_auto_schema(tags=["product_additions"]))
+class GetAllProductAdditionsView(generics.ListAPIView):
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    serializer_class = ProductAdditionSerializer
+
+    def get_queryset(self):
+        """Fetch only non-deleted (Active) items"""
+        active_status = get_status("Active")
+        return ProductAddition.objects.filter(status=active_status).order_by("-created_at")
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            "status": True,
+            "message": "product additions fetched successfully.",
+            "data": serializer.data,
+        }, status=status.HTTP_200_OK)
+
+
+@method_decorator(name="get", decorator=swagger_auto_schema(tags=["product_additions"]))
+class GetProductAdditionByIDView(generics.RetrieveAPIView):
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    serializer_class = ProductAdditionSerializer
+    lookup_field = "id"
+
+    def get_queryset(self):
+        """Exclude deleted ones"""
+        deleted_status = get_status("Deleted")
+        return ProductAddition.objects.exclude(status=deleted_status)
+
+    def retrieve(self, request, *args, **kwargs):
+        try:
+            instance = self.get_queryset().get(id=kwargs["id"])
+        except ProductAddition.DoesNotExist:
+            return Response({
+                "status": False,
+                "message": "Product addition not found or has been deleted.",
+                "data": None,
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = self.get_serializer(instance)
+        return Response({
+            "status": True,
+            "message": "Product addition fetched successfully.",
+            "data": serializer.data,
+        }, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['product_additions']))
+class UpdateProductAdditionView(ProductAdditionBaseView):
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    def put(self, request, id):
+        try:
+            addition = ProductAddition.objects.get(id=id)
+        except ProductAddition.DoesNotExist:
+            return Response({
+                "status": False,
+                "message": "Product addition not found.",
+                "data": None,
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        addon_name = request.data.get("addon_name", addition.addon_name)
+        price = request.data.get("price", addition.price)
+        status_name = request.data.get("status")
+
+        status_obj = get_status(status_name) if status_name else addition.status
+
+        files = request.FILES.getlist("images")
+        if files:
+            allowed_ext = (".png", ".jpg", ".jpeg", ".gif")
+            new_urls = []
+            for f in files:
+                if not f.name.lower().endswith(allowed_ext):
+                    return Response({
+                        "status": False,
+                        "message": f"Invalid file type for {f.name}.",
+                        "data": None,
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                new_urls.append(self.upload_to_s3(f))
+            addition.image_urls.extend(new_urls)
+
+        addition.addon_name = addon_name
+        addition.price = price
+        addition.status = status_obj
+        addition.updated_at = timezone.now()
+        addition.save()
+
+        return Response({
+            "status": True,
+            "message": "Product addition updated successfully.",
+            "data": ProductAdditionSerializer(addition).data,
+        }, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='delete', decorator=swagger_auto_schema(tags=['product_additions']))
+class DeleteProductAdditionView(APIView):
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    def delete(self, request, id):
+        try:
+            addition = ProductAddition.objects.get(id=id)
+        except ProductAddition.DoesNotExist:
+            return Response({
+                "status": False,
+                "message": "Product addition not found.",
+                "data": None,
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        deleted_status = get_status("Deleted")
+        if addition.status == deleted_status:
+            return Response({
+                "status": False,
+                "message": "Product addition is already deleted.",
+                "data": None,
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        addition.status = deleted_status
+        addition.updated_at = timezone.now()
+        addition.save(update_fields=["status", "updated_at"])
+
+        return Response({
+            "status": True,
+            "message": "Product addition deleted successfully.",
+            "data": None,
+        }, status=status.HTTP_200_OK)
