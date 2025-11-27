@@ -387,3 +387,11 @@ class CelebrityBanner(models.Model):
 
     def __str__(self):
         return self.title
+
+class BestDealBanner(models.Model):
+    title = models.CharField(max_length=255)
+    image = models.TextField()   # S3 URL
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.title

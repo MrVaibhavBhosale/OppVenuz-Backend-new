@@ -29,6 +29,7 @@ from .models import (
     VendorMedia,
     VendorService,
     CelebrityBanner,
+    BestDealBanner,
 )
 
 from .serializers import (
@@ -53,6 +54,7 @@ from .serializers import (
     VendorServiceSerializer,
     VendorContactUpdateSerializer,
     CelebrityBannerSerializer,
+    BestDealBannerSerializer,
 
 )
 
@@ -1788,3 +1790,113 @@ class GetAllCelebrityBannerAPIView(APIView):
             return Response(serializer.data)
         except Exception as e:
             return Response({"error": str(e)}, status=500)
+
+class CreateBestDealBannerAPIView(APIView):
+    permission_classes = ()
+    authentication_classes = [VendorJWTAuthentication]
+
+    def post(self, request):
+        try:
+            title = request.data.get("title")
+            image = request.FILES.get("image")
+
+            if not title or not image:
+                return Response({"error": "Title & image are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # S3 setup
+            s3 = boto3.client(
+                "s3",
+                aws_access_key_id=config("s3AccessKey"),
+                aws_secret_access_key=config("s3Secret")
+            )
+            bucket = config("S3_BUCKET_NAME")
+
+            ext = os.path.splitext(image.name)[1]
+            unique_name = f"{uuid.uuid4().hex}{ext}"
+            key = f"best_deal_banners/{unique_name}"
+
+            # Upload to S3
+            s3.upload_fileobj(image, bucket, key, ExtraArgs={"ACL": "public-read"})
+            image_url = f"https://{bucket}.s3.amazonaws.com/{key}"
+
+            banner = BestDealBanner.objects.create(
+                title=title,
+                image=image_url
+            )
+
+            return Response({
+                "message": "Best Deal banner created successfully",
+                "banner": BestDealBannerSerializer(banner).data
+            }, status=201)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+
+class GetAllBestDealBannerAPIView(APIView):
+    permission_classes = ()
+    authentication_classes = [VendorJWTAuthentication]
+
+    def get(self, request):
+        banners = BestDealBanner.objects.all().order_by('-id')
+        serializer = BestDealBannerSerializer(banners, many=True)
+        return Response({"banners": serializer.data}, status=200)
+
+class GetBestDealBannerByIdAPIView(APIView):
+    permission_classes = ()
+    authentication_classes = [VendorJWTAuthentication]
+
+    def get(self, request, id):
+        try:
+            banner = BestDealBanner.objects.get(id=id)
+            return Response({"banner": BestDealBannerSerializer(banner).data}, status=200)
+        except BestDealBanner.DoesNotExist:
+            return Response({"error": "Banner not found"}, status=404)
+
+class UpdateBestDealBannerAPIView(APIView):
+    permission_classes = ()
+    authentication_classes = [VendorJWTAuthentication]
+
+    def put(self, request, id):
+        try:
+            banner = BestDealBanner.objects.get(id=id)
+
+            title = request.data.get("title", banner.title)
+            image = request.FILES.get("image")
+
+            banner.title = title
+
+            # If new image provided, upload again to S3
+            if image:
+                s3 = boto3.client(
+                    "s3",
+                    aws_access_key_id=config("s3AccessKey"),
+                    aws_secret_access_key=config("s3Secret")
+                )
+                bucket = config("S3_BUCKET_NAME")
+
+                ext = os.path.splitext(image.name)[1]
+                unique_name = f"{uuid.uuid4().hex}{ext}"
+                key = f"best_deal_banners/{unique_name}"
+
+                s3.upload_fileobj(image, bucket, key, ExtraArgs={"ACL": "public-read"})
+                banner.image = f"https://{bucket}.s3.amazonaws.com/{key}"
+
+            banner.save()
+            return Response({"message": "Updated", "banner": BestDealBannerSerializer(banner).data}, status=200)
+
+        except BestDealBanner.DoesNotExist:
+            return Response({"error": "Banner not found"}, status=404)
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+
+class DeleteBestDealBannerAPIView(APIView):
+    permission_classes = ()
+    authentication_classes = [VendorJWTAuthentication]
+
+    def delete(self, request, id):
+        try:
+            banner = BestDealBanner.objects.get(id=id)
+            banner.delete()
+            return Response({"message": "Banner deleted successfully"}, status=200)
+        except BestDealBanner.DoesNotExist:
+            return Response({"error": "Banner not found"}, status=404)

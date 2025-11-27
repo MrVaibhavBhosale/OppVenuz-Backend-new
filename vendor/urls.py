@@ -39,6 +39,11 @@ from .views import (
     UpdateCelebrityBannerAPIView,
     DeleteCelebrityBannerAPIView,
     GetAllCelebrityBannerAPIView,
+    DeleteBestDealBannerAPIView,
+    UpdateBestDealBannerAPIView,
+    GetBestDealBannerByIdAPIView,
+    GetAllBestDealBannerAPIView,
+    CreateBestDealBannerAPIView,
 
 )
 
@@ -84,5 +89,10 @@ urlpatterns = [
     path("celebrity-banner/update/<int:pk>/", UpdateCelebrityBannerAPIView.as_view()),
     path("celebrity-banner/delete/<int:pk>/", DeleteCelebrityBannerAPIView.as_view()),
     path("celebrity-banner/all/", GetAllCelebrityBannerAPIView.as_view()),
+    path("best-deal/create/", CreateBestDealBannerAPIView.as_view()),
+    path("best-deal/all/", GetAllBestDealBannerAPIView.as_view()),
+    path("best-deal/<int:id>/", GetBestDealBannerByIdAPIView.as_view()),
+    path("best-deal/update/<int:id>/", UpdateBestDealBannerAPIView.as_view()),
+    path("best-deal/delete/<int:id>/", DeleteBestDealBannerAPIView.as_view()),
 
 ]
