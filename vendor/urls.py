@@ -44,6 +44,12 @@ from .views import (
     GetBestDealBannerByIdAPIView,
     GetAllBestDealBannerAPIView,
     CreateBestDealBannerAPIView,
+    CreateProductAdditionView,
+    GetAllProductAdditionsView,
+    GetProductAdditionByIDView,
+    UpdateProductAdditionView,
+    DeleteProductAdditionView,
+    GetVendorBannerAPIView,
 
 )
 
@@ -94,5 +100,12 @@ urlpatterns = [
     path("best-deal/<int:id>/", GetBestDealBannerByIdAPIView.as_view()),
     path("best-deal/update/<int:id>/", UpdateBestDealBannerAPIView.as_view()),
     path("best-deal/delete/<int:id>/", DeleteBestDealBannerAPIView.as_view()),
+    path('product-additions/', GetAllProductAdditionsView.as_view(), name='get_all_product_additions'),
+    path('product-additions/<int:id>/', GetProductAdditionByIDView.as_view(), name='get_product_addition_by_id'),
+    path('product-additions/create/', CreateProductAdditionView.as_view(), name='create_product_addition'),
+    path('product-additions/update/<int:id>/', UpdateProductAdditionView.as_view(), name='update_product_addition'),
+    path('product-additions/delete/<int:id>/', DeleteProductAdditionView.as_view(), name='delete_product_addition'),
+    path("DashboardGetAllData/", GetVendorBannerAPIView.as_view()),
+
 
 ]
