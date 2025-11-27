@@ -14,6 +14,7 @@ from .models import (
     VendorService,
     CelebrityBanner,
     BestDealBanner,
+    ProductAddition,
     )
 from django.contrib.auth import authenticate
 import re
@@ -519,3 +520,8 @@ class BestDealBannerSerializer(serializers.ModelSerializer):
     class Meta:
         model = BestDealBanner
         fields = "__all__"
+
+class ProductAdditionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProductAddition
+        fields = '__all__'
