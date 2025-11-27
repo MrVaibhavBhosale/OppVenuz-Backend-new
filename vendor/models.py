@@ -395,3 +395,16 @@ class BestDealBanner(models.Model):
 
     def __str__(self):
         return self.title
+
+class ProductAddition(models.Model):
+    addon_name = models.CharField(max_length=255)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    image_urls = ArrayField(models.URLField(), default=list, blank=True)
+    status = models.ForeignKey(StatusMaster, on_delete=models.PROTECT, default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_by = models.CharField(max_length=255, null=True, blank=True)
+
+    def __str__(self):
+        return self.addon_name
