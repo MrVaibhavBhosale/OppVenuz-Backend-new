@@ -57,6 +57,7 @@ from .serializers import (
     CelebrityBannerSerializer,
     BestDealBannerSerializer,
     ProductAdditionSerializer,
+    VendorLocationUpdateSerializer,
 
 )
 
@@ -2120,3 +2121,63 @@ class DeleteProductAdditionView(APIView):
             "message": "Product addition deleted successfully.",
             "data": None,
         }, status=status.HTTP_200_OK)
+
+class VendorLocationUpdateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    # authentication_classes = [VendorJWTAuthentication]  # uncomment if you use custom JWT auth
+
+    def put(self, request, *args, **kwargs):
+        """
+        Replace vendor location fields.
+        """
+        serializer = VendorLocationUpdateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({
+                "status": False,
+                "message": "Validation failed.",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        validated = serializer.validated_data
+        vendor = request.user  # assume request.user is Vendor_registration instance
+
+        # safe update in transaction
+        try:
+            with transaction.atomic():
+                vendor.state_id = validated['state_obj']
+                vendor.city_id = validated['city_obj']
+                vendor.pincode = validated.get('pincode') or vendor.pincode
+                vendor.address = validated.get('address') or vendor.address
+                if 'latitude' in validated:
+                    vendor.latitude = validated.get('latitude')
+                if 'longitude' in validated:
+                    vendor.longitude = validated.get('longitude')
+
+                # Set profile_status to pending for re-approval after location change
+                vendor.profile_status = 'PENDING'
+                # updated_by — prefer user email or contact_no
+                vendor.updated_by = getattr(request.user, 'email', None) or getattr(request.user, 'contact_no', None)
+
+                vendor.save(update_fields=[
+                    'state_id', 'city_id', 'pincode', 'address', 'latitude', 'longitude',
+                    'profile_status', 'updated_by', 'updated_at'
+                ])
+        except Exception as e:
+            return Response({
+                "status": False,
+                "message": "Failed to update location.",
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # reuse existing representation
+        vendor_data = VendorSignupSerializer(vendor).data
+
+        return Response({
+            "status": True,
+            "message": "Location updated successfully. Changes sent for approval.",
+            "data": vendor_data
+        }, status=status.HTTP_200_OK)
+
+    def patch(self, request, *args, **kwargs):
+        # Allow partial updates via PATCH as well.
+        return self.put(request, *args, **kwargs)
