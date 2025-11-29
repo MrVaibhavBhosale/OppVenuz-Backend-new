@@ -23,7 +23,9 @@ import os
 from django.db.models import Q
 from admin_master.models import (
     CompanyTypeMaster,
-    Best_suited_for
+    Best_suited_for,
+    State_master,
+    City_master,
 )
 
 
@@ -525,3 +527,34 @@ class ProductAdditionSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductAddition
         fields = '__all__'
+
+class VendorLocationUpdateSerializer(serializers.Serializer):
+    state_id = serializers.IntegerField(required=True)
+    city_id = serializers.IntegerField(required=True)
+    pincode = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    address = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    latitude = serializers.DecimalField(max_digits=13, decimal_places=6, required=False, allow_null=True)
+    longitude = serializers.DecimalField(max_digits=13, decimal_places=6, required=False, allow_null=True)
+
+    def validate(self, attrs):
+        state_id = attrs.get('state_id')
+        city_id = attrs.get('city_id')
+
+        try:
+            state = State_master.objects.get(pk=state_id, status=1)
+        except State_master.DoesNotExist:
+            raise serializers.ValidationError({"state_id": "Invalid state_id or state not active."})
+
+        try:
+            city = City_master.objects.get(pk=city_id, status=1)
+        except City_master.DoesNotExist:
+            raise serializers.ValidationError({"city_id": "Invalid city_id or city not active."})
+
+        # Check city belongs to state
+        if getattr(city, 'state_id_id', None) and city.state_id_id != state_id:
+            # depending on your City_master field name, adjust above; commonly City_master has state_id FK
+            raise serializers.ValidationError({"city_id": "Selected city does not belong to selected state."})
+
+        attrs['state_obj'] = state
+        attrs['city_obj'] = city
+        return attrs
