@@ -50,6 +50,8 @@ from .views import (
     UpdateProductAdditionView,
     DeleteProductAdditionView,
     GetVendorBannerAPIView,
+    VendorLocationUpdateAPIView,
+
 
 )
 
@@ -106,6 +108,7 @@ urlpatterns = [
     path('product-additions/update/<int:id>/', UpdateProductAdditionView.as_view(), name='update_product_addition'),
     path('product-additions/delete/<int:id>/', DeleteProductAdditionView.as_view(), name='delete_product_addition'),
     path("DashboardGetAllData/", GetVendorBannerAPIView.as_view()),
+    path('updateLocation/', VendorLocationUpdateAPIView.as_view(), name='vendor-update-location'),
 
 
 ]
