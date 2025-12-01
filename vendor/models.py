@@ -155,30 +155,39 @@ class VendorDevice(models.Model):
         return f"{self.vendor} - {self.device_type} {self.os_version}"
     
 
-class VendorMedia(models.Model):
-    MEDIA_TYPE_CHOICES = [
-        ('IMAGE', 'Image'),
-        ('VIDEO', 'Video'),
+class VendorDocument(models.Model):
+    STATUS_CHOICES = [
+        ('TEMP', 'Temporary'),
+        ('VERIFIED', 'Verified'),
+        ('DELETED', 'Deleted'),
     ]
 
-    vendor = models.ForeignKey(
-        Vendor_registration,
+    id = models.AutoField(primary_key=True)
+    verification = models.ForeignKey(
+        "PhoneVerification",
         on_delete=models.CASCADE,
-        related_name='vendor_media'
+        related_name="documents",
+        null=True,
+        blank=True,
     )
-    
-    file_url = models.URLField(max_length=1000)
-    media_type = models.CharField(max_length=10, choices=MEDIA_TYPE_CHOICES)
-    file_name = models.CharField(max_length=255, null=True, blank=True)
 
-    file_hash = models.CharField(max_length=64, null=True, blank=True)  # <-- Added
-
-    status = models.CharField(max_length=10, default='ACTIVE')
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
+    company_type = models.ForeignKey(
+        'admin_master.CompanyTypeMaster',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+    document_type = models.CharField(max_length=100)
+    document_url = models.URLField(default="")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='TEMP')
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    vendor_business_no = models.CharField(max_length=20, default="")    
+    def default_expiry():
+        return timezone.now() + timedelta(hours=1)
+    expires_at = models.DateTimeField(default=default_expiry)
     def __str__(self):
-        return f"{self.media_type} - {self.vendor}"
+        phone = self.verification.phone if self.verification else "NoPhone"
+        return f"{phone} - {self.document_type}"
 
 class AbstractVerification(models.Model):
     otp = models.CharField(max_length=128, null=True, blank=True)
@@ -360,16 +369,20 @@ class VendorMedia(models.Model):
         on_delete=models.CASCADE,
         related_name='vendor_media'
     )
-    vendor_code = models.CharField(max_length=12, db_index=True) 
+    
     file_url = models.URLField(max_length=1000)
     media_type = models.CharField(max_length=10, choices=MEDIA_TYPE_CHOICES)
     file_name = models.CharField(max_length=255, null=True, blank=True)
+
+    file_hash = models.CharField(max_length=64, null=True, blank=True)  # <-- Added
+
     status = models.CharField(max_length=10, default='ACTIVE')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.media_type} - {self.vendor_code}"
+        return f"{self.media_type} - {self.vendor}"
+
 
 class CelebrityBanner(models.Model):
     title = models.CharField(max_length=255)
