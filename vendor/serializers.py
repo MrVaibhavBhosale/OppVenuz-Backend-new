@@ -558,3 +558,7 @@ class VendorLocationUpdateSerializer(serializers.Serializer):
         attrs['state_obj'] = state
         attrs['city_obj'] = city
         return attrs
+class VendorDocumentUpdateSerializer(serializers.Serializer):
+    document_type = serializers.CharField(required=False)
+    file = serializers.FileField(required=False)
+    company_type = serializers.IntegerField(required=False)
