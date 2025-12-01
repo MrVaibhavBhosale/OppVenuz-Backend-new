@@ -448,6 +448,14 @@ class VendorMediaSerializer(serializers.ModelSerializer):
     class Meta:
         model = VendorMedia
         fields = "__all__"
+        read_only_fields = [
+            "id",
+            "vendor",
+            "vendor_code",
+            "status",
+            "created_at",
+            "updated_at"
+        ]
 
 
 class VendorServiceSerializer(serializers.ModelSerializer):

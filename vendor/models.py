@@ -369,16 +369,20 @@ class VendorMedia(models.Model):
         on_delete=models.CASCADE,
         related_name='vendor_media'
     )
-    vendor_code = models.CharField(max_length=12, db_index=True) 
+    
     file_url = models.URLField(max_length=1000)
     media_type = models.CharField(max_length=10, choices=MEDIA_TYPE_CHOICES)
     file_name = models.CharField(max_length=255, null=True, blank=True)
+
+    file_hash = models.CharField(max_length=64, null=True, blank=True)  # <-- Added
+
     status = models.CharField(max_length=10, default='ACTIVE')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.media_type} - {self.vendor_code}"
+        return f"{self.media_type} - {self.vendor}"
+
 
 class CelebrityBanner(models.Model):
     title = models.CharField(max_length=255)

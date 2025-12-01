@@ -6,6 +6,22 @@ import requests
 from utilities import constants
 import logging
 logger = logging.getLogger("django")
+import hashlib
+
+def calculate_file_hash(file_obj, chunk_size=4096):
+    """
+    Returns SHA256 hash of uploaded file (works for large files also).
+    """
+    hash_sha256 = hashlib.sha256()
+
+    file_obj.seek(0)
+
+    for chunk in iter(lambda: file_obj.read(chunk_size), b""):
+        hash_sha256.update(chunk)
+
+    file_obj.seek(0)
+
+    return hash_sha256.hexdigest()
 
 
 def generate_numeric_otp(length=6):
