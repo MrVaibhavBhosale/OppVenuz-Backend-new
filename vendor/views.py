@@ -67,7 +67,8 @@ from .utils import (
     send_otp_email, 
     send_otp_sms,
     mask_email,
-    mask_phone
+    mask_phone,
+    calculate_file_hash,
 )
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -1263,111 +1264,182 @@ class VendorSocialMediaView(generics.GenericAPIView):
 
 
 class VendorMediaUploadAPIView(APIView):
-    permission_classes = (AllowAny,)
+    permission_classes = [IsAuthenticated]
     authentication_classes = [VendorJWTAuthentication]
 
     MAX_IMAGE_COUNT = 10
     MAX_VIDEO_COUNT = 3
-    MAX_IMAGE_SIZE_MB = 2
+    MAX_IMAGE_SIZE_MB = 5
     MAX_VIDEO_SIZE_MB = 20
 
     def post(self, request):
         try:
-            vendor_id = request.data.get("vendor_id")  
-            media_type = request.data.get("media_type") 
-            files = request.FILES.getlist("files")
+            vendor = request.user   
+            vendor_id = vendor.vendor_id
 
-            if not all([vendor_id, media_type, files]):
-                return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
+            images = request.FILES.getlist("images")
+            videos = request.FILES.getlist("videos")
 
-            vendor = Vendor_registration.objects.filter(vendor_id=vendor_id).first()
-            if not vendor:
-                return Response({"error": "Invalid vendor_id"}, status=status.HTTP_400_BAD_REQUEST)
-
-            existing_count = VendorMedia.objects.filter(vendor_code=vendor_id, media_type=media_type, status="ACTIVE").count()
-            if media_type == "IMAGE" and (existing_count + len(files)) > self.MAX_IMAGE_COUNT:
-                return Response({"error": f"Max {self.MAX_IMAGE_COUNT} images allowed."}, status=status.HTTP_400_BAD_REQUEST)
-            if media_type == "VIDEO" and (existing_count + len(files)) > self.MAX_VIDEO_COUNT:
-                return Response({"error": f"Max {self.MAX_VIDEO_COUNT} videos allowed."}, status=status.HTTP_400_BAD_REQUEST)
-
-            for f in files:
-                size_mb = f.size / (1024 * 1024)
-                if media_type == "IMAGE" and size_mb > self.MAX_IMAGE_SIZE_MB:
-                    return Response({"error": f"Each image must be ≤ {self.MAX_IMAGE_SIZE_MB} MB."}, status=status.HTTP_400_BAD_REQUEST)
-                if media_type == "VIDEO" and size_mb > self.MAX_VIDEO_SIZE_MB:
-                    return Response({"error": f"Each video must be ≤ {self.MAX_VIDEO_SIZE_MB} MB."}, status=status.HTTP_400_BAD_REQUEST)
+            if not images and not videos:
+                return Response({"error": "No files uploaded"}, status=400)
 
             s3 = boto3.client(
                 "s3",
                 aws_access_key_id=config("s3AccessKey"),
-                aws_secret_access_key=config("s3Secret"),
+                aws_secret_access_key=config("s3Secret")
             )
             bucket = config("S3_BUCKET_NAME")
 
-            uploaded_files = []
-            for file in files:
-                ext = os.path.splitext(file.name)[1]
-                unique_name = f"{uuid.uuid4().hex}{ext}"
-                key = f"vendor_media/{vendor_id}/{unique_name}"
+            uploaded_items = []
+            skipped_duplicates = []
 
-                s3.upload_fileobj(file, bucket, key, ExtraArgs={"ACL": "public-read"})
-                file_url = f"https://{bucket}.s3.amazonaws.com/{key}"
+            # ---------------------------
+            # IMAGES
+            # ---------------------------
+            existing_img = VendorMedia.objects.filter(
+                vendor=vendor,
+                media_type="IMAGE",
+                status="ACTIVE"
+            ).count()
 
-                media = VendorMedia.objects.create(
-                    vendor=vendor,
-                    vendor_code=vendor_id,
-                    file_url=file_url,
-                    file_name=unique_name,
-                    media_type=media_type,
-                )
-                uploaded_files.append(VendorMediaSerializer(media).data)
+            if images:
+                if existing_img + len(images) > self.MAX_IMAGE_COUNT:
+                    return Response({"error": f"Max {self.MAX_IMAGE_COUNT} images allowed"}, status=400)
+
+                for img in images:
+                    file_hash = calculate_file_hash(img)
+
+                    duplicate = VendorMedia.objects.filter(
+                        vendor=vendor,
+                        file_hash=file_hash,
+                        status="ACTIVE"
+                    ).exists()
+
+                    if duplicate:
+                        skipped_duplicates.append(img.name)
+                        continue  # ← Duplicate skip, upload NO stop
+
+                    if img.size > self.MAX_IMAGE_SIZE_MB * 1024 * 1024:
+                        skipped_duplicates.append(img.name + " (size too large)")
+                        continue
+
+                    ext = os.path.splitext(img.name)[1]
+                    unique = f"{uuid.uuid4().hex}{ext}"
+                    key = f"vendor_media/{vendor_id}/{unique}"
+
+                    s3.upload_fileobj(img, bucket, key, ExtraArgs={"ACL": "public-read"})
+                    url = f"https://{bucket}.s3.amazonaws.com/{key}"
+
+                    media = VendorMedia.objects.create(
+                        vendor=vendor,
+                        file_url=url,
+                        file_name=unique,
+                        media_type="IMAGE",
+                        file_hash=file_hash
+                    )
+                    uploaded_items.append(VendorMediaSerializer(media).data)
+
+            # ---------------------------
+            # VIDEOS
+            # ---------------------------
+            existing_vid = VendorMedia.objects.filter(
+                vendor=vendor,
+                media_type="VIDEO",
+                status="ACTIVE"
+            ).count()
+
+            if videos:
+                if existing_vid + len(videos) > self.MAX_VIDEO_COUNT:
+                    return Response({"error": f"Max {self.MAX_VIDEO_COUNT} videos allowed"}, status=400)
+
+                for vid in videos:
+                    file_hash = calculate_file_hash(vid)
+
+                    duplicate = VendorMedia.objects.filter(
+                        vendor=vendor,
+                        file_hash=file_hash,
+                        status="ACTIVE"
+                    ).exists()
+
+                    if duplicate:
+                        skipped_duplicates.append(vid.name)
+                        continue
+
+                    if vid.size > self.MAX_VIDEO_SIZE_MB * 1024 * 1024:
+                        skipped_duplicates.append(vid.name + " (size too large)")
+                        continue
+
+                    ext = os.path.splitext(vid.name)[1]
+                    unique = f"{uuid.uuid4().hex}{ext}"
+                    key = f"vendor_media/{vendor_id}/{unique}"
+
+                    s3.upload_fileobj(vid, bucket, key, ExtraArgs={"ACL": "public-read"})
+                    url = f"https://{bucket}.s3.amazonaws.com/{key}"
+
+                    media = VendorMedia.objects.create(
+                        vendor=vendor,
+                        file_url=url,
+                        file_name=unique,
+                        media_type="VIDEO",
+                        file_hash=file_hash
+                    )
+                    uploaded_items.append(VendorMediaSerializer(media).data)
 
             return Response({
-                "message": "Media uploaded successfully.",
-                "uploaded": uploaded_files
-            }, status=status.HTTP_201_CREATED)
+                "message": "Upload completed",
+                "uploaded": uploaded_items,
+                "skipped_duplicates": skipped_duplicates
+            }, status=200)
 
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"error": str(e)}, status=500)
 
 
 class VendorMediaListAPIView(APIView):
-    permission_classes = (AllowAny,)
+    permission_classes = [IsAuthenticated]
     authentication_classes = [VendorJWTAuthentication]
 
-    def get(self, request, vendor_id):
-        media = VendorMedia.objects.filter(vendor_code=vendor_id, status="ACTIVE")
-        serializer = VendorMediaSerializer(media, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+    def get(self, request):
+        vendor = request.user
+
+        media = VendorMedia.objects.filter(
+            vendor=vendor,
+            status="ACTIVE"
+        ).order_by("-created_at")
+
+        return Response({
+            "status": True,
+            "count": media.count(),
+            "media": VendorMediaSerializer(media, many=True).data
+        }, status=200)
 
 
 class VendorMediaDeleteAPIView(APIView):
-    permission_classes = (AllowAny,)
+    permission_classes = [IsAuthenticated]
     authentication_classes = [VendorJWTAuthentication]
 
-    def delete(self, request, pk):
+    def delete(self, request, media_id):
+        vendor = request.user
+
         try:
-            media = VendorMedia.objects.get(pk=pk, status="ACTIVE")
-
-            s3 = boto3.client(
-                "s3",
-                aws_access_key_id=config("s3AccessKey"),
-                aws_secret_access_key=config("s3Secret"),
+            media = VendorMedia.objects.get(
+                id=media_id,
+                vendor=vendor,
+                status="ACTIVE"
             )
-            bucket = config("S3_BUCKET_NAME")
-            key = f"vendor_media/{media.vendor_code}/{media.file_name}"
-
-            s3.delete_object(Bucket=bucket, Key=key)
-
-            media.status = "DELETED"
-            media.save()
-
-            return Response({"message": "Media deleted successfully"}, status=status.HTTP_200_OK)
-
         except VendorMedia.DoesNotExist:
-            return Response({"error": "Media not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                "status": False,
+                "message": "Media not found"
+            }, status=404)
+
+        media.status = "DELETED"
+        media.save(update_fields=["status"])
+
+        return Response({
+            "status": True,
+            "message": "Media deleted successfully"
+        }, status=200)
         
 @method_decorator(name='post', decorator=swagger_auto_schema(tags=['Product Details']))
 class VendorServiceCreateAPIView(generics.CreateAPIView):
