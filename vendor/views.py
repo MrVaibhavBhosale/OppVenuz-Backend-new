@@ -58,6 +58,7 @@ from .serializers import (
     BestDealBannerSerializer,
     ProductAdditionSerializer,
     VendorLocationUpdateSerializer,
+    VendorDocumentUpdateSerializer,
 
 )
 
@@ -2181,3 +2182,134 @@ class VendorLocationUpdateAPIView(APIView):
     def patch(self, request, *args, **kwargs):
         # Allow partial updates via PATCH as well.
         return self.put(request, *args, **kwargs)
+
+class VendorDocumentListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [VendorJWTAuthentication]
+
+    def get(self, request):
+        vendor = request.user
+        phone = vendor.contact_no
+
+        docs = VendorDocument.objects.filter(
+            vendor_business_no=phone,
+            status__in=["PERMANENT"]
+        )
+
+        serializer = VendorDocumentSerializer(docs, many=True)
+        return Response({
+            "status": True,
+            "documents": serializer.data
+        }, status=status.HTTP_200_OK)
+
+class VendorDocumentUpdateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [VendorJWTAuthentication]
+
+    def put(self, request, doc_id):
+        try:
+            vendor = request.user
+            phone = vendor.contact_no
+
+            try:
+                document = VendorDocument.objects.get(
+                    id=doc_id,
+                    vendor_business_no=phone,
+                    status="PERMANENT"
+                )
+            except VendorDocument.DoesNotExist:
+                return Response({"error": "Document not found or not owned by you"}, status=404)
+
+            serializer = VendorDocumentUpdateSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+
+            new_file = request.FILES.get("file")
+            new_doc_type = serializer.validated_data.get("document_type")
+            company_type_id = serializer.validated_data.get("company_type")
+
+            # -------- Update company type --------
+            if company_type_id:
+                try:
+                    company_type_obj = CompanyTypeMaster.objects.get(id=company_type_id)
+                    document.company_type = company_type_obj
+                except CompanyTypeMaster.DoesNotExist:
+                    return Response({"error": "Invalid company_type id"}, status=400)
+
+            # -------- Update document type --------
+            if new_doc_type:
+                document.document_type = new_doc_type
+
+            # -------- Replace document file S3 --------
+            if new_file:
+                s3 = boto3.client(
+                    "s3",
+                    aws_access_key_id=config("s3AccessKey"),
+                    aws_secret_access_key=config("s3Secret"),
+                )
+
+                bucket = config("S3_BUCKET_NAME")
+
+                file_ext = os.path.splitext(new_file.name)[1]
+                unique_name = f"{uuid.uuid4().hex}{file_ext}"
+                key = f"vendor_documents/{phone}/{unique_name}"
+
+                s3.upload_fileobj(new_file, bucket, key, ExtraArgs={"ACL": "public-read"})
+                new_url = f"https://{bucket}.s3.amazonaws.com/{key}"
+
+                # Update document URL
+                document.document_url = new_url
+
+            document.save()
+
+            # --- UPDATE vendor_registration.document_id ----
+            valid_docs = VendorDocument.objects.filter(
+                vendor_business_no=phone,
+                status="PERMANENT"
+            ).values_list("id", flat=True)
+
+            vendor.document_id = list(valid_docs)
+            vendor.save(update_fields=["document_id"])
+
+            return Response({
+                "status": True,
+                "message": "Document updated successfully",
+                "document": VendorDocumentSerializer(document).data
+            })
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+
+class VendorDocumentDeleteAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [VendorJWTAuthentication]
+
+    def delete(self, request, doc_id):
+        vendor = request.user
+        phone = vendor.contact_no
+
+        try:
+            document = VendorDocument.objects.get(
+                id=doc_id,
+                vendor_business_no=phone,
+                status="PERMANENT"
+            )
+        except VendorDocument.DoesNotExist:
+            return Response({"error": "Document not found"}, status=404)
+
+        # Mark deleted
+        document.status = "DELETED"
+        document.save()
+
+        # Update vendor document list
+        valid_docs = VendorDocument.objects.filter(
+            vendor_business_no=phone,
+            status="PERMANENT"
+        ).values_list("id", flat=True)
+
+        vendor.document_id = list(valid_docs)
+        vendor.save(update_fields=["document_id"])
+
+        return Response({
+            "status": True,
+            "message": "Document deleted successfully"
+        })
