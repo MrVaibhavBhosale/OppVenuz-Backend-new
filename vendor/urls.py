@@ -51,6 +51,10 @@ from .views import (
     DeleteProductAdditionView,
     GetVendorBannerAPIView,
     VendorLocationUpdateAPIView,
+    VendorDocumentDeleteAPIView,
+    VendorDocumentUpdateAPIView,
+    VendorDocumentListAPIView,
+
 
 
 )
@@ -109,6 +113,9 @@ urlpatterns = [
     path('product-additions/delete/<int:id>/', DeleteProductAdditionView.as_view(), name='delete_product_addition'),
     path("DashboardGetAllData/", GetVendorBannerAPIView.as_view()),
     path('updateLocation/', VendorLocationUpdateAPIView.as_view(), name='vendor-update-location'),
+    path('deleteDocument/<int:doc_id>/', VendorDocumentDeleteAPIView.as_view(), name='delete-document'),
+    path('updateDocument/<int:doc_id>/', VendorDocumentUpdateAPIView.as_view(), name='update-document'),
+    path('listDocument/', VendorDocumentListAPIView.as_view(), name='list-document'),
 
 
 ]
