@@ -15,6 +15,8 @@ from .models import (
     CelebrityBanner,
     BestDealBanner,
     ProductAddition,
+    VendorNotification,
+    VendorNotificationSettings,
     )
 from django.contrib.auth import authenticate
 import re
@@ -28,6 +30,8 @@ from admin_master.models import (
     City_master,
 )
 
+from user.models import UserRegistration
+from django.utils.timesince import timesince
 
 class VendorSerializer(serializers.ModelSerializer):
     class Meta:
@@ -570,3 +574,36 @@ class VendorDocumentUpdateSerializer(serializers.Serializer):
     document_type = serializers.CharField(required=False)
     file = serializers.FileField(required=False)
     company_type = serializers.IntegerField(required=False)
+
+class VendorNotificationSerializer(serializers.ModelSerializer):
+    time_ago = serializers.SerializerMethodField()
+    user_image = serializers.SerializerMethodField()
+    user_name = serializers.SerializerMethodField()
+    user_mobile = serializers.SerializerMethodField()
+ 
+    class Meta:
+        model = VendorNotification
+        fields = [
+            'id', 'title', 'message', 'data', 'is_read',
+            'created_at', 'time_ago', 'status',
+            'user_image', 'user_name', 'user_mobile'
+        ]
+ 
+    def get_time_ago(self, obj):
+        return timesince(obj.created_at) + " ago"
+ 
+    def get_user_image(self, obj):
+        if obj.user and obj.user.profile_image:
+            return obj.user.profile_image
+        return None
+ 
+    def get_user_name(self, obj):
+        return obj.user.full_name if obj.user else None
+ 
+    def get_user_mobile(self, obj):
+        return obj.user.mobile_number if obj.user else None
+ 
+class VendorNotificationSettingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = VendorNotificationSettings
+        fields = ['is_enabled']
