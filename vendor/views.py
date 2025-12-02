@@ -31,6 +31,7 @@ from .models import (
     CelebrityBanner,
     BestDealBanner,
     ProductAddition,
+    VendorNotification,
 )
 
 from .serializers import (
@@ -59,6 +60,8 @@ from .serializers import (
     ProductAdditionSerializer,
     VendorLocationUpdateSerializer,
     VendorDocumentUpdateSerializer,
+    VendorNotificationSettings,
+    VendorNotificationSerializer,
 
 )
 
@@ -2384,4 +2387,95 @@ class VendorDocumentDeleteAPIView(APIView):
         return Response({
             "status": True,
             "message": "Document deleted successfully"
+        })
+
+class NotificationPagination(PageNumberPagination):
+    page_size = 50
+    page_size_query_param = "page_size"
+    max_page_size = 100
+ 
+ 
+class VendorNotificationListView(APIView):
+    def get(self, request):
+        vendor_id = request.query_params.get("vendor_id")
+        active_status = get_status("Active")
+ 
+        notifications = VendorNotification.objects.filter(
+            vendor_id=vendor_id,
+            status=active_status
+        )
+ 
+        paginator = NotificationPagination()
+        page = paginator.paginate_queryset(notifications, request)
+ 
+        unread_count = notifications.filter(is_read=False).count()
+ 
+        serializer = VendorNotificationSerializer(page, many=True)
+ 
+        return paginator.get_paginated_response({
+            "unread_count": unread_count,
+            "notifications": serializer.data
+        })
+ 
+class MarkNotificationReadView(APIView):
+    def post(self, request, pk):
+        vendor_id = request.data.get("vendor_id")
+ 
+        notification = get_object_or_404(
+            VendorNotification,
+            id=pk,
+            vendor_id=vendor_id,
+        )
+ 
+        if not notification.is_read:
+            notification.is_read = True
+            notification.save(update_fields=["is_read"])
+ 
+        return Response({"message": "Notification marked as read"}, status=200)
+ 
+ 
+class DeleteNotificationView(APIView):
+    def delete(self, request, pk):
+        vendor_id = request.data.get("vendor_id")
+        deleted_status = get_status("Deleted")
+ 
+        try:
+            notification = VendorNotification.objects.get(id=pk, vendor_id=vendor_id)
+        except VendorNotification.DoesNotExist:
+            return Response({"status": False, "message": "Notification not found."}, 404)
+ 
+        notification.status = deleted_status
+        notification.save(update_fields=["status"])
+ 
+        return Response({"status": True, "message": "Notification deleted."}, 200)
+ 
+ 
+ 
+class ClearAllNotificationsView(APIView):
+    def post(self, request):
+        vendor_id = request.data.get("vendor_id")
+ 
+        active_status = get_status("Active")
+        deleted_status = get_status("Deleted")
+ 
+        count = VendorNotification.objects.filter(
+            vendor_id=vendor_id,
+            status=active_status
+        ).update(status=deleted_status)
+ 
+        return Response({"status": True, "message": f"{count} notifications cleared."}, 200)
+ 
+ 
+ 
+class NotificationToggleView(APIView):
+    def post(self, request):
+        vendor_id = request.data.get("vendor_id")
+ 
+        setting, _ = VendorNotificationSettings.objects.get_or_create(vendor_id=vendor_id)
+        setting.is_enabled = not setting.is_enabled
+        setting.save(update_fields=["is_enabled"])
+ 
+        return Response({
+            "message": "Notifications " + ("Enabled" if setting.is_enabled else "Disabled"),
+            "status": setting.is_enabled
         })
