@@ -15,7 +15,7 @@ from django.utils import timezone
 import random
 from datetime import timedelta
 from django.conf import settings
-
+from user.models import UserRegistration
 
 class Vendor(models.Model):
     business_name = models.CharField(max_length=255)
@@ -412,3 +412,40 @@ class ProductAddition(models.Model):
 
     def __str__(self):
         return self.addon_name
+
+class VendorNotification(models.Model):
+    vendor = models.ForeignKey(
+        Vendor_registration,
+        on_delete=models.CASCADE,
+        related_name="notifications"
+    )
+ 
+    user = models.ForeignKey(
+        UserRegistration,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="user_notifications"
+    )
+ 
+    title = models.CharField(max_length=255)
+    message = models.TextField(blank=True, null=True)
+    data = models.JSONField(null=True, blank=True)
+    is_read = models.BooleanField(default=False)
+    status = models.ForeignKey(StatusMaster, on_delete=models.PROTECT, default=1)
+    created_at = models.DateTimeField(default=timezone.now)
+    profile_image = models.CharField(max_length=512, null=True, blank=True)
+ 
+    class Meta:
+        ordering = ['-created_at']
+ 
+    def __str__(self):
+        return f"{self.vendor} - {self.title[:40]}"
+ 
+class VendorNotificationSettings(models.Model):
+    vendor = models.OneToOneField(
+        Vendor_registration,
+        on_delete=models.CASCADE,
+        related_name="notification_settings"
+    )
+    is_enabled = models.BooleanField(default=True)
