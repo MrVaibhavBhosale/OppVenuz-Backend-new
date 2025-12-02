@@ -7,7 +7,11 @@ from django.conf import settings
 from decouple import config
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from oauth2_provider.contrib.rest_framework.authentication import OAuth2Authentication
-
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.response import Response
+from .models import UserRegistration
+from .serializers import UserRegistrationSerializer
+from rest_framework import status
 
 class ImageUploadView(APIView):
     permission_classes = (AllowAny,)
@@ -36,3 +40,58 @@ class ImageUploadView(APIView):
             return Response(
                 {"error": "No image provided"}, status=status.HTTP_400_BAD_REQUEST
             )
+
+class UserRegistrationView(APIView):
+    parser_classes = (MultiPartParser, FormParser)
+ 
+    def post(self, request):
+ 
+        full_name = request.data.get("full_name")
+        mobile_number = request.data.get("mobile_number")
+        email = request.data.get("email")
+        image = request.FILES.get("profile_image")   # ✔ Correct way
+ 
+        # Mobile unique check
+        if UserRegistration.objects.filter(mobile_number=mobile_number).exists():
+            return Response(
+                {"status": False, "message": "Mobile number already exists"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+ 
+        # Default URL
+        image_url = None
+ 
+        # Upload Image to S3
+        if image:
+            bucket = config("S3_BUCKET_NAME")
+            s3 = boto3.client(
+                "s3",
+                aws_access_key_id=config("s3AccessKey"),
+                aws_secret_access_key=config("s3Secret"),
+            )
+ 
+            key = f"user_profiles/{mobile_number}_{image.name}"
+ 
+            s3.upload_fileobj(
+                image,
+                bucket,
+                key,
+                ExtraArgs={"ACL": "public-read", "ContentType": image.content_type}
+            )
+ 
+            image_url = f"https://{bucket}.s3.amazonaws.com/{key}"
+ 
+        # Save in DB
+        user = UserRegistration.objects.create(
+            full_name=full_name,
+            mobile_number=mobile_number,
+            email=email,
+            profile_image=image_url
+        )
+ 
+        serializer = UserRegistrationSerializer(user)
+ 
+        return Response(
+            {"status": True, "message": "User registered successfully", "data": serializer.data},
+            status=status.HTTP_201_CREATED
+        )
