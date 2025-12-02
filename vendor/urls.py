@@ -54,6 +54,11 @@ from .views import (
     VendorDocumentDeleteAPIView,
     VendorDocumentUpdateAPIView,
     VendorDocumentListAPIView,
+    VendorNotificationListView,
+    MarkNotificationReadView,
+    DeleteNotificationView,
+    ClearAllNotificationsView,
+    NotificationToggleView
 
 
 
@@ -116,6 +121,12 @@ urlpatterns = [
     path('deleteDocument/<int:doc_id>/', VendorDocumentDeleteAPIView.as_view(), name='delete-document'),
     path('updateDocument/<int:doc_id>/', VendorDocumentUpdateAPIView.as_view(), name='update-document'),
     path('listDocument/', VendorDocumentListAPIView.as_view(), name='list-document'),
+
+    path("notifications/", VendorNotificationListView.as_view(), name='notifications'),
+    path("notifications/<int:pk>/read/", MarkNotificationReadView.as_view(), name='notifications-read'),
+    path("notifications/<int:pk>/delete/", DeleteNotificationView.as_view(), name='notifications-delete'),
+    path("notifications/clear/", ClearAllNotificationsView.as_view(), name='notifications-clear'),
+    path("notifications/toggle/", NotificationToggleView.as_view(), name='notifications-toggle'),
 
 
 ]
