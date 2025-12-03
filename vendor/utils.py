@@ -76,7 +76,6 @@ def send_otp_email(email, otp):
         return None
 
 def send_otp_sms(phone, otp):
-    url = "https://api.textlocal.in/send/"
 
     # Format your template with the actual OTP
     message = constants.PHONE_VERIFICATION_MSG_TEMPLATE.format(otp)
@@ -89,7 +88,7 @@ def send_otp_sms(phone, otp):
     }
 
     try:
-        response = requests.post(url, data=payload, timeout=10)
+        response = requests.post(data=payload)
         data = response.json()
 
         if data.get("status") == "success":
