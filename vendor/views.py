@@ -245,8 +245,7 @@ class VendorRetrieveUpdateDeleteAPI(generics.RetrieveUpdateDestroyAPIView):
             "message": "Vendor deleted successfully"
         }, status=status.HTTP_200_OK)
     
-@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Vendor Signup']))
-class VendorSignupView(generics.GenericAPIView):
+'''class VendorSignupView(generics.GenericAPIView):
     serializer_class = VendorSignupSerializer
     permission_classes = [AllowAny]
 
@@ -320,6 +319,132 @@ class VendorSignupView(generics.GenericAPIView):
             VendorDocument.objects.filter(id__in=matched_doc_ids).update(status="PERMANENT")
             vendor.document_id = matched_doc_ids
             vendor.save(update_fields=["document_id"])
+
+        VendorDevice.objects.update_or_create(
+            vendor_id=vendor,
+            device_type=device_info["device_type"],
+            os_version=device_info["os_version"],
+            browser_name=device_info["browser_name"],
+            os_type=device_info["os_type"],
+            defaults={"browser_version": device_info["browser_version"]}
+        )
+
+        refresh = RefreshToken.for_user(vendor)
+        vendor_data = self.get_serializer(vendor).data
+        vendor_data.update({
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+            "device_info": device_info
+        })
+
+        return Response({
+            "status": True,
+            "message": "Vendor registered successfully.",
+            "data": vendor_data
+        }, status=status.HTTP_201_CREATED)'''
+
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Vendor Signup']))
+class VendorSignupView(generics.GenericAPIView):
+    serializer_class = VendorSignupSerializer
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({
+                "status": False,
+                "message": "Validation failed.",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        contact_no = serializer.validated_data.get("contact_no")
+        documents_data = request.data.get("documents", [])
+
+        # Check TEMP documents exist
+        uploaded_docs = VendorDocument.objects.filter(
+            vendor_business_no=str(contact_no),
+            status="TEMP"
+        )
+
+        if not uploaded_docs.exists():
+            return Response({
+                "error": "Please upload at least one document before registration."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        matched_doc_ids = []
+
+        for doc in documents_data:
+            doc_type = doc.get("document_type", "")
+            doc_url = doc.get("document_url", "")
+
+            #skip completely invalid entries
+            if not doc_type or not doc_url:
+                continue
+            doc_type = str(doc_type).strip()
+            doc_url = str(doc_url).strip()
+
+            # skip empty/blank values
+            if not doc_type or not doc_url:
+                continue
+
+            # match by type & full static url
+            clen_url = doc_url.split("?")[0
+                                          ]
+            matching_docs = uploaded_docs.filter(
+                document_type__iexact=doc_type,
+                document_url__iexact=clen_url    #safer match
+            )
+
+            if matching_docs.exists():
+                matched_doc_ids.extend(
+                    list(matching_docs.values_list("id", flat=True))
+                )
+
+        matched_doc_ids = list(set(matched_doc_ids))  # remove duplicates
+
+        if not matched_doc_ids:
+            return Response({
+                "error": "No valid uploaded document matched."
+            },
+            status=status.HTTP_400_BAD_REQUEST)
+
+        # Collect device info
+        user_agent_string = request.META.get('HTTP_USER_AGENT', '')
+        user_agent = parse(user_agent_string)
+        if user_agent.is_mobile:
+            device_type = "Mobile"
+        elif user_agent.is_tablet:
+            device_type = "Tablet"
+        elif user_agent.is_pc:
+            device_type = "Desktop"
+        else:
+            device_type = "Other"
+            
+        os_family = user_agent.os.family or ""
+        if "Android" in os_family:
+            os_type = "Android"
+        elif "iOS" in os_family:
+            os_type = "iOS"
+        else:
+            os_type = os_family or "Other"
+
+        device_info = {
+            "device_type": device_type,
+            "os_version": user_agent.os.version_string,
+            "browser_name": user_agent.browser.family,
+            "browser_version": user_agent.browser.version_string,
+            "os_type": os_type,
+        }
+
+        # create vendor only after all validations passed
+        vendor = serializer.save()
+
+        #convert TEMP -> PERMANENT for matched documents
+        VendorDocument.objects.filter(
+            id__in=matched_doc_ids).update(status="PERMANENT")
+        
+        vendor.document_id = matched_doc_ids
+        vendor.save(update_fields=["document_id"])
 
         VendorDevice.objects.update_or_create(
             vendor_id=vendor,
@@ -461,7 +586,7 @@ class RequestEmailOTPView(APIView):
                     }, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
                 # generate and set OTP using model method
-                otp = str(123456)
+                otp = generate_numeric_otp()
                 verification.set_otp(otp)
 
         except Exception as e:
