@@ -562,14 +562,6 @@ class RequestEmailOTPView(APIView):
                 # Get or create verification record first
                 verification, created = EmailVerification.objects.get_or_create(email=email)
 
-                if verification.is_verified:
-                    return Response({
-                        "status": True,
-                        "message": "Email already verified.",
-                        "email": masked_email,
-                        "is_email_verified": True
-                    }, status=status.HTTP_200_OK)
-
                  # Check if the user is temporarily blocked
                 remaining_block = verification._is_blocked()
                 if remaining_block:
@@ -618,14 +610,6 @@ class RequestPhoneOTPView(APIView):
             with transaction.atomic():
                 # Get or create verification record first
                 verification, created = PhoneVerification.objects.get_or_create(phone=phone)
-
-                if verification.is_verified:
-                    return Response({
-                        "status": True,
-                        "message": "Phone verified Already.",
-                        "phone": masked_phone,
-                        "is_email_verified": True
-                    }, status=status.HTTP_200_OK)
 
                 # Check if the user is temporarily blocked
                 remaining_block = verification._is_blocked()
@@ -676,14 +660,6 @@ class VerifyEmailOTPView(APIView):
 
         verification = get_object_or_404(EmailVerification, email=email)
 
-        if verification.is_verified:
-            return Response({
-                "status": True,
-                "message": "Email already verified.",
-                "email": masked_email,
-                "is_email_verified": True
-            }, status=status.HTTP_200_OK)
-
         remaining_block = verification._is_blocked()
         if remaining_block:
             return Response({
@@ -723,14 +699,6 @@ class VerifyPhoneOTPView(APIView):
         masked_phone = mask_phone(phone)
 
         verification = get_object_or_404(PhoneVerification, phone=phone)
-
-        if verification.is_verified:
-            return Response({
-                "status": True,
-                "message": "Contact number already verified.",
-                "phone": masked_phone,
-                "is_phone_verified": True
-            }, status=status.HTTP_200_OK)
 
         #check if temporary blocked
         remaining_block = verification._is_blocked()
