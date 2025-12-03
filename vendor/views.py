@@ -116,7 +116,7 @@ class VendorBasicDetailsAPI(generics.CreateAPIView, generics.UpdateAPIView):
 @method_decorator(name='put', decorator=swagger_auto_schema(tags=['Vendor Details']))
 class VendorDescriptionAPI(generics.UpdateAPIView):
     serializer_class = VenderBusinessDescriptionSerializer
-    authentication_classes = [JWTAuthentication]
+    authentication_classes = [VendorJWTAuthentication]
     permission_classes = [IsAuthenticated]
     queryset = VenderBusinessDescription.objects.all()
     lookup_field = "vendor_reg_id"
@@ -162,7 +162,7 @@ class VendorDescriptionAPI(generics.UpdateAPIView):
 @method_decorator(name='get', decorator=swagger_auto_schema(tags=['Vendor Details']))
 class GetVendorDescriptionAPI(generics.ListAPIView):
     serializer_class = VenderBusinessDescriptionSerializer
-    authentication_classes = [JWTAuthentication]
+    authentication_classes = [VendorJWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
