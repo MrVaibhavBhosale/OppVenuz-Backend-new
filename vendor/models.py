@@ -449,3 +449,45 @@ class VendorNotificationSettings(models.Model):
         related_name="notification_settings"
     )
     is_enabled = models.BooleanField(default=True)
+
+class VendorFeedback(models.Model):
+    vendor = models.ForeignKey(
+        Vendor_registration,
+        on_delete=models.CASCADE,
+        related_name="feedbacks"
+    )
+ 
+    customer_name = models.CharField(max_length=255, null=True, blank=True)
+    customer_email = models.EmailField(null=True, blank=True)
+    customer_profile_image = models.URLField(null=True, blank=True)
+ 
+    message = models.TextField()
+    rating = models.IntegerField(default=5)
+    is_visible = models.BooleanField(default=True)  
+    created_at = models.DateTimeField(default=timezone.now)
+ 
+    def __str__(self):
+        return f"Feedback for {self.vendor.vendor_id} - {self.rating}⭐"
+   
+class VendorFeedbackReply(models.Model):
+    feedback = models.ForeignKey(
+        VendorFeedback,
+        on_delete=models.CASCADE,
+        related_name="replies"
+    )
+ 
+    reply_text = models.TextField()
+ 
+    reply_by = models.CharField(
+        max_length=50,
+        choices=[('ADMIN', 'Admin'), ('VENDOR', 'Vendor')],
+        default='ADMIN'
+    )
+ 
+    vendor_id = models.IntegerField(null=True, blank=True)  
+ 
+    replied_at = models.DateTimeField(default=timezone.now)
+ 
+    def __str__(self):
+        return f"Reply by {self.reply_by} on feedback {self.feedback.id}"
+ 

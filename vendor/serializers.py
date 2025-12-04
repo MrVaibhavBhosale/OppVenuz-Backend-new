@@ -17,6 +17,8 @@ from .models import (
     ProductAddition,
     VendorNotification,
     VendorNotificationSettings,
+    VendorFeedbackReply,
+    VendorFeedback,
     )
 from django.contrib.auth import authenticate
 import re
@@ -615,7 +617,7 @@ class VendorNotificationSettingSerializer(serializers.ModelSerializer):
         model = VendorNotificationSettings
         fields = ['is_enabled']
 
-
+        
 class OrderListSerializer(serializers.ModelSerializer):
     customer_name = serializers.CharField(default="P. priyanka Mehta", read_only=True)
     customer_phone = serializers.CharField(default="8970998765", read_only=True)
@@ -674,3 +676,32 @@ class UpdateOrderStatusSerializer(serializers.ModelSerializer):
         if value not in valid_status:
             raise serializers.ValidationError("Invalid order status")
         return value
+      
+class VendorFeedbackReplySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = VendorFeedbackReply
+        fields = ['id', 'reply_text', 'reply_by', 'vendor_id', 'replied_at']
+        read_only_fields = ['replied_at']
+ 
+ 
+ 
+class VendorFeedbackSerializer(serializers.ModelSerializer):
+    replies = VendorFeedbackReplySerializer(many=True, read_only=True)
+ 
+    class Meta:
+        model = VendorFeedback
+        fields = [
+            'id', 'vendor',
+            'customer_name', 'customer_email', 'customer_profile_image',
+            'message', 'rating', 'is_visible', 'created_at', 'replies'
+        ]
+        read_only_fields = ['created_at', 'replies']
+ 
+    def create(self, validated_data):
+        user_obj = self.context.get('user_obj', None)
+        if user_obj:
+            validated_data.setdefault('customer_name', user_obj.full_name)
+            validated_data.setdefault('customer_email', user_obj.email)
+            validated_data.setdefault('customer_profile_image', user_obj.profile_image)
+        return super().create(validated_data)
+

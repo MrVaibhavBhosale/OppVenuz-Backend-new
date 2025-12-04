@@ -62,6 +62,9 @@ from .views import (
     OrderListAPIView,
     OrderListByIdView,
     updateOrderStatusAPIView
+    GetVendorFeedback,
+    AddFeedbackReply,
+
 
 
 
@@ -133,5 +136,9 @@ urlpatterns = [
     path('orderList/', OrderListAPIView.as_view(), name="order-list_by-filter"),
     path('orderDetails/<int:id>/', OrderListByIdView.as_view(), name="order-details"),
     path('updateOrderStatus/<int:id>/', updateOrderStatusAPIView.as_view(), name="update-status")
+
+    path('get-feedback/<str:vendor_id>/', GetVendorFeedback.as_view(), name='get-feedback'),
+    path('add-reply/<int:feedback_id>/', AddFeedbackReply.as_view(), name='add-feedback-reply'),
+
 
 ]
