@@ -16,6 +16,7 @@ from .permissions import IsVendor
 import json
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import PermissionDenied
+from user.models import UserRegistration
 
 from .models import (
     Vendor, 
@@ -33,6 +34,8 @@ from .models import (
     BestDealBanner,
     ProductAddition,
     VendorNotification,
+    VendorFeedbackReply,
+    VendorFeedback,
 )
 
 from .serializers import (
@@ -63,6 +66,8 @@ from .serializers import (
     VendorDocumentUpdateSerializer,
     VendorNotificationSettings,
     VendorNotificationSerializer,
+    VendorFeedbackSerializer,
+    VendorFeedbackReplySerializer,
 
 )
 
@@ -2573,3 +2578,42 @@ class NotificationToggleView(APIView):
             "message": "Notifications " + ("Enabled" if setting.is_enabled else "Disabled"),
             "status": setting.is_enabled
         })
+
+class FeedbackPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+ 
+class GetVendorFeedback(APIView):
+    def get(self, request, vendor_id):
+        feedbacks = VendorFeedback.objects.filter(vendor_id=vendor_id, is_visible=True).order_by("-created_at")
+        paginator = FeedbackPagination()
+        page = paginator.paginate_queryset(feedbacks, request)
+        serializer = VendorFeedbackSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
+ 
+ 
+class AddFeedbackReply(APIView):
+    def post(self, request, feedback_id):
+        feedback = get_object_or_404(VendorFeedback, id=feedback_id)
+ 
+        reply_by = request.data.get('reply_by')
+        vendor_id_from_request = request.data.get('vendor_id')
+ 
+        if reply_by == "VENDOR":
+            if not vendor_id_from_request:
+                return Response({"error": "vendor_id required"}, status=400)
+ 
+            if str(feedback.vendor_id) != str(vendor_id_from_request):
+                return Response({"error": "Permission denied"}, status=403)
+ 
+        serializer = VendorFeedbackReplySerializer(data=request.data)
+ 
+        if serializer.is_valid():
+            serializer.save(feedback=feedback)
+            return Response(
+                {"message": "Reply posted successfully!", "data": serializer.data},
+                status=201
+            )
+ 
+        return Response(serializer.errors, status=400)
