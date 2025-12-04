@@ -491,6 +491,3 @@ class VendorFeedbackReply(models.Model):
     def __str__(self):
         return f"Reply by {self.reply_by} on feedback {self.feedback.id}"
  
- path('get-feedback/<str:vendor_id>/', GetVendorFeedback.as_view(), name='get-feedback'),
-    path('add-reply/<int:feedback_id>/', AddFeedbackReply.as_view(), name='add-feedback-reply'),
- 
