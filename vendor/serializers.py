@@ -683,8 +683,6 @@ class VendorFeedbackReplySerializer(serializers.ModelSerializer):
         fields = ['id', 'reply_text', 'reply_by', 'vendor_id', 'replied_at']
         read_only_fields = ['replied_at']
  
- 
- 
 class VendorFeedbackSerializer(serializers.ModelSerializer):
     replies = VendorFeedbackReplySerializer(many=True, read_only=True)
  
@@ -698,10 +696,9 @@ class VendorFeedbackSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at', 'replies']
  
     def create(self, validated_data):
-        user_obj = self.context.get('user_obj', None)
+        user_obj = self.context.get('user_obj')
         if user_obj:
             validated_data.setdefault('customer_name', user_obj.full_name)
             validated_data.setdefault('customer_email', user_obj.email)
             validated_data.setdefault('customer_profile_image', user_obj.profile_image)
         return super().create(validated_data)
-
