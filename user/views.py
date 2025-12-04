@@ -10,8 +10,10 @@ from oauth2_provider.contrib.rest_framework.authentication import OAuth2Authenti
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from .models import UserRegistration
-from .serializers import UserRegistrationSerializer
+from .serializers import UserRegistrationSerializer, CreateOrderSerializer
 from rest_framework import status
+import logging
+logger = logging.getLogger("django")
 
 class ImageUploadView(APIView):
     permission_classes = (AllowAny,)
@@ -95,3 +97,45 @@ class UserRegistrationView(APIView):
             {"status": True, "message": "User registered successfully", "data": serializer.data},
             status=status.HTTP_201_CREATED
         )
+
+
+class CreateOrderAPIView(APIView):
+    permission_classes = []
+
+    def post(self, request):
+        try:
+            serializer = CreateOrderSerializer(data=request.data)
+
+            if not serializer.is_valid():
+                logger.warning(f"Order validation failed: {serializer.errors}")
+                return Response({
+                    "error": serializer.errors
+                },
+                status=status.HTTP_400_BAD_REQUEST)
+            
+            order = serializer.save()
+
+            return Response({
+                    "success": True,
+                    "message": "order created successfully.",
+                    "orders": [
+                        {
+                            "order_id": order.id,
+                            "order_number": order.order_number,
+                            "vendor_id": order.vendor_id,
+                            "subtotal": order.subtotal,
+                            "grand_total": order.grand_total
+
+                        }
+                        for order in order
+                    ]
+                }, status=status.HTTP_201_CREATED)
+        
+        except Exception as e:
+            logger.exception("Unexpected error while creating order")
+            return Response({
+                "error": "something went wrong. Please try again",
+                "details": str(e)
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
