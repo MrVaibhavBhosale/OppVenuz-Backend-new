@@ -31,7 +31,14 @@ from admin_master.models import (
     State_master,
     City_master,
 )
-
+from user.models import(
+    Order,
+    OrderItem,
+    OrderStatus
+)
+from user.serializers import(
+    AddressSerializer
+)
 from user.models import UserRegistration
 from django.utils.timesince import timesince
 
@@ -610,6 +617,66 @@ class VendorNotificationSettingSerializer(serializers.ModelSerializer):
         model = VendorNotificationSettings
         fields = ['is_enabled']
 
+        
+class OrderListSerializer(serializers.ModelSerializer):
+    customer_name = serializers.CharField(default="P. priyanka Mehta", read_only=True)
+    customer_phone = serializers.CharField(default="8970998765", read_only=True)
+    order_status = serializers.CharField(source="get_order_status_display", read_only=True)
+    delivery_address = AddressSerializer(read_only=True)
+    product_name = serializers.SerializerMethodField()
+    product_image = serializers.SerializerMethodField()
+    product_weight = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Order
+        fields = ["id", "order_number", "customer_name", "customer_phone", 
+                  "delivery_address", "product_name", "product_image", 
+                  "product_weight", "grand_total", "order_status", "order_date",]
+        
+    def get_product_name(self, obj):
+        first_item = obj.items.first()
+        return first_item.product_name if first_item else None
+        
+    def get_product_image(self, obj):
+        first_image = obj.items.first()
+        return first_image.product_image if first_image else None
+    
+    def get_product_weight(self, obj):
+        weight = obj.items.first()
+        return weight.product_weight if weight else None
+
+
+class OrderItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OrderItem
+        fields = "__all__"
+
+class OrderListByIdSerializer(serializers.ModelSerializer):
+    items = OrderItemSerializer(many=True, read_only=True)
+    delivery_address = AddressSerializer(read_only=True)
+    order_status = serializers.CharField(source='get_order_status_display', read_only=True)
+    class Meta:
+        model = Order
+        fields = [
+            "id", "order_number", "customer", "delivery_address",
+             "order_status", "subtotal", "packaging_fee",
+            "delivery_fee", "platform_fee", "discount", "grand_total",
+            "payment_method", "created_by", "items"
+        ]
+
+class UpdateOrderStatusSerializer(serializers.ModelSerializer):
+    order_status_name = serializers.CharField(source="get_order_status_display", required=True)
+    class Meta:
+        model = Order
+        fields = ["order_status", "order_status_name"]
+        
+    def validate_order_status(self, value):
+        valid_status = dict(OrderStatus.CHOICES).keys()
+
+        if value not in valid_status:
+            raise serializers.ValidationError("Invalid order status")
+        return value
+      
 class VendorFeedbackReplySerializer(serializers.ModelSerializer):
     class Meta:
         model = VendorFeedbackReply
@@ -637,3 +704,4 @@ class VendorFeedbackSerializer(serializers.ModelSerializer):
             validated_data.setdefault('customer_email', user_obj.email)
             validated_data.setdefault('customer_profile_image', user_obj.profile_image)
         return super().create(validated_data)
+

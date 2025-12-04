@@ -59,8 +59,12 @@ from .views import (
     DeleteNotificationView,
     ClearAllNotificationsView,
     NotificationToggleView,
+    OrderListAPIView,
+    OrderListByIdView,
+    updateOrderStatusAPIView
     GetVendorFeedback,
     AddFeedbackReply,
+
 
 
 
@@ -129,6 +133,10 @@ urlpatterns = [
     path("notifications/<int:pk>/delete/", DeleteNotificationView.as_view(), name='notifications-delete'),
     path("notifications/clear/", ClearAllNotificationsView.as_view(), name='notifications-clear'),
     path("notifications/toggle/", NotificationToggleView.as_view(), name='notifications-toggle'),
+    path('orderList/', OrderListAPIView.as_view(), name="order-list_by-filter"),
+    path('orderDetails/<int:id>/', OrderListByIdView.as_view(), name="order-details"),
+    path('updateOrderStatus/<int:id>/', updateOrderStatusAPIView.as_view(), name="update-status")
+
     path('get-feedback/<str:vendor_id>/', GetVendorFeedback.as_view(), name='get-feedback'),
     path('add-reply/<int:feedback_id>/', AddFeedbackReply.as_view(), name='add-feedback-reply'),
 

@@ -15,6 +15,11 @@ from concurrent.futures import ThreadPoolExecutor
 from .permissions import IsVendor
 import json
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.exceptions import PermissionDenied, NotFound
+from rest_framework_simplejwt.exceptions import AuthenticationFailed
+from user.models import OrderStatus, Order
+from .filters import OrderFilter
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.exceptions import PermissionDenied
 from user.models import UserRegistration
 
@@ -66,6 +71,9 @@ from .serializers import (
     VendorDocumentUpdateSerializer,
     VendorNotificationSettings,
     VendorNotificationSerializer,
+    OrderListSerializer,
+    OrderListByIdSerializer,
+    UpdateOrderStatusSerializer,
     VendorFeedbackSerializer,
     VendorFeedbackReplySerializer,
 
@@ -2579,6 +2587,182 @@ class NotificationToggleView(APIView):
             "status": setting.is_enabled
         })
 
+
+class OrderListAPIView(generics.ListAPIView):
+    serializer_class = OrderListSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = OrderFilter
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def get_queryset(self):
+        #user = self.request.user
+
+        token = self.request.auth
+        if not token:
+            raise NotFound("Token missing")
+
+        vendor_id = token.get("user_id")
+
+        if not vendor_id:
+            raise NotFound("vendor_id is missing")
+        
+        queryset = Order.objects.filter(vendor_id=vendor_id).order_by("id")
+        return queryset
+
+    def list(self, request, *args, **kwargs):
+
+        valid_fields = ["order_status"]
+
+        for key in request.query_params.keys():
+            if key not in valid_fields:
+                logger.warning("Invalid filter key received: %s", key)
+
+                return Response({
+                    "success": False,
+                    "message": f"Invalid filter parameter '{key}' "
+                },
+                status=status.HTTP_400_BAD_REQUEST)           
+            
+        try:
+            queryset = self.get_queryset()
+
+            #total count for summary
+            total_count = queryset.count()
+            completed_count = queryset.filter(order_status=OrderStatus.COMPLETED).count()
+            cancelled_count = queryset.filter(order_status=OrderStatus.CANCELLED).count()
+
+            order_status_param = request.query_params.get("order_status")
+
+            if order_status_param is not None:
+                try:
+                    order_status_param = int(order_status_param)
+                except: 
+                    return Response({
+                        "success": False,
+                        "message": "order_status must be an integer"
+                    },status=status.HTTP_400_BAD_REQUEST)
+                
+                valid_status_ids = [choice[0] for choice in OrderStatus.CHOICES]
+
+                if order_status_param not in valid_status_ids:
+                    return Response({
+                        "success": False,
+                        "message": f"Invalid order_status ID '{order_status_param}' "
+                    },status=status.HTTP_400_BAD_REQUEST)
+                
+                queryset = queryset.filter(order_status=order_status_param)
+                serializer = self.get_serializer(queryset, many=True)
+
+                return Response({
+                    "success": True,
+                    "message": "Filtered order list fetched successfully",
+                    "filter_applied": True,
+                    "total_count_before_filter": total_count,
+                    "filtered_count": queryset.count(),
+                    "data": serializer.data
+                }, status=status.HTTP_200_OK)
+
+            # No filter Response
+            serializer = self.get_serializer(queryset, many=True)
+            return Response({
+                "success": True,
+                "message": "All order list fetched successfully",
+                "filter_applied": False,
+                "total_count": total_count,
+                "Completed_orders": completed_count,
+                "cancelled_orders": cancelled_count,
+                "data": serializer.data
+            }, status=status.HTTP_200_OK)
+        
+        except Exception as e:
+            logger.error(f"OrderListAPIView Error: {str(e)}", exc_info=True)
+            return Response(
+                {
+                    "success": False,
+                    "message": "Something went wrong while fetching orders",
+                    "details": str(e),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class OrderListByIdView(generics.RetrieveAPIView):
+    queryset = Order.objects.all()
+    serializer_class = OrderListByIdSerializer
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated, IsVendor]
+    lookup_field = 'id'
+
+    def get_object(self):
+        user = self.request.user
+        order_id = self.kwargs.get("id")
+        
+        try:
+            order = Order.objects.get(id=order_id)
+
+            if order.vendor_id != user.id:
+                logger.warning(f"[OrderDetails] Vendor {user.id} tried to access order {order_id}")
+                raise PermissionDenied("This order does ot belongs to you")
+        
+            return order
+    
+        except Order.DoesNotExist:
+            logger.error(f"[orderDetails] order {order_id} does not exist")
+            raise NotFound("order not found")
+        
+    def retrieve(self, request, *args, **kwargs):
+        order = self.get_object()
+        seriailizer = self.get_serializer(order)
+
+        return Response({
+            "status": True,
+            "message": "Order details fetched successfully.",
+            "data": seriailizer.data
+        },
+        status=status.HTTP_200_OK)
+
+class updateOrderStatusAPIView(generics.UpdateAPIView):
+    queryset = Order.objects.all()
+    serializer_class = UpdateOrderStatusSerializer
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated, IsVendor]
+    lookup_field = 'id'
+
+    def get_object(self):
+        user = self.request.user
+        order_id = self.kwargs.get("id")
+
+        try:
+            order = Order.objects.get(id=order_id)
+
+            if order.vendor_id != user.id:
+                logger.error("[updateOrderStatus] User authentication failed")
+                raise AuthenticationFailed("This order does not belongs to you.")
+        
+            return order
+
+        except Order.DoesNotExist:
+            logger.exception(f"[updateOrderStatus] error updating order #{order_id}")
+            raise NotFound("order not found")
+        
+    def update(self, request, *args, **kwargs):
+        order_id = self.kwargs.get("id")
+
+        try:
+            response = super().update(request, *args, **kwargs)
+
+            return Response({
+                "status": True,
+                "message": "status updated successfully.",
+                "order_id": order_id,
+                "data": response.data
+            },
+            status=status.HTTP_200_OK)
+        
+        except Exception as e:
+            logger.exception(f"[updateOrderDetails] error updating order #{order_id}: {str(e)}")
+            raise
+
 class FeedbackPagination(PageNumberPagination):
     page_size = 20
     page_size_query_param = 'page_size'
@@ -2617,3 +2801,4 @@ class AddFeedbackReply(APIView):
             )
  
         return Response(serializer.errors, status=400)
+
