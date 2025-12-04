@@ -61,7 +61,7 @@ from .views import (
     NotificationToggleView,
     OrderListAPIView,
     OrderListByIdView,
-    updateOrderStatusAPIView
+    updateOrderStatusAPIView,
     GetVendorFeedback,
     AddFeedbackReply,
 
