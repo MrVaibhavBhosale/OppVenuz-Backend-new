@@ -2503,35 +2503,52 @@ class NotificationPagination(PageNumberPagination):
  
  
 class VendorNotificationListView(APIView):
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+ 
     def get(self, request):
-        vendor_id = request.query_params.get("vendor_id")
+ 
+        vendor_id = request.user.id
         active_status = get_status("Active")
+ 
+        filter_type = request.query_params.get("filter", "all").lower()
  
         notifications = VendorNotification.objects.filter(
             vendor_id=vendor_id,
             status=active_status
-        )
+        ).order_by("-created_at")
+ 
+        if filter_type == "unread":
+            notifications = notifications.filter(is_read=False)
+ 
+        unread_count = VendorNotification.objects.filter(
+            vendor_id=vendor_id,
+            status=active_status,
+            is_read=False
+        ).count()
  
         paginator = NotificationPagination()
         page = paginator.paginate_queryset(notifications, request)
  
-        unread_count = notifications.filter(is_read=False).count()
- 
         serializer = VendorNotificationSerializer(page, many=True)
  
         return paginator.get_paginated_response({
+            "filter": filter_type,
             "unread_count": unread_count,
             "notifications": serializer.data
         })
  
 class MarkNotificationReadView(APIView):
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+ 
     def post(self, request, pk):
-        vendor_id = request.data.get("vendor_id")
+        vendor_id = request.user.id  
  
         notification = get_object_or_404(
             VendorNotification,
             id=pk,
-            vendor_id=vendor_id,
+            vendor_id=vendor_id
         )
  
         if not notification.is_read:
@@ -2540,14 +2557,19 @@ class MarkNotificationReadView(APIView):
  
         return Response({"message": "Notification marked as read"}, status=200)
  
- 
 class DeleteNotificationView(APIView):
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+ 
     def delete(self, request, pk):
-        vendor_id = request.data.get("vendor_id")
+        vendor_id = request.user.id
         deleted_status = get_status("Deleted")
  
         try:
-            notification = VendorNotification.objects.get(id=pk, vendor_id=vendor_id)
+            notification = VendorNotification.objects.get(
+                id=pk,
+                vendor_id=vendor_id
+            )
         except VendorNotification.DoesNotExist:
             return Response({"status": False, "message": "Notification not found."}, 404)
  
@@ -2556,11 +2578,12 @@ class DeleteNotificationView(APIView):
  
         return Response({"status": True, "message": "Notification deleted."}, 200)
  
- 
- 
 class ClearAllNotificationsView(APIView):
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+ 
     def post(self, request):
-        vendor_id = request.data.get("vendor_id")
+        vendor_id = request.user.id  
  
         active_status = get_status("Active")
         deleted_status = get_status("Deleted")
@@ -2572,13 +2595,17 @@ class ClearAllNotificationsView(APIView):
  
         return Response({"status": True, "message": f"{count} notifications cleared."}, 200)
  
- 
- 
 class NotificationToggleView(APIView):
-    def post(self, request):
-        vendor_id = request.data.get("vendor_id")
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated]
  
-        setting, _ = VendorNotificationSettings.objects.get_or_create(vendor_id=vendor_id)
+    def post(self, request):
+        vendor_id = request.user.id  
+ 
+        setting, _ = VendorNotificationSettings.objects.get_or_create(
+            vendor_id=vendor_id
+        )
+ 
         setting.is_enabled = not setting.is_enabled
         setting.save(update_fields=["is_enabled"])
  
