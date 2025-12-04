@@ -2796,29 +2796,42 @@ class FeedbackPagination(PageNumberPagination):
     max_page_size = 100
  
 class GetVendorFeedback(APIView):
-    def get(self, request, vendor_id):
-        feedbacks = VendorFeedback.objects.filter(vendor_id=vendor_id, is_visible=True).order_by("-created_at")
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+ 
+    def get(self, request):
+        vendor_id = request.user.id  
+        feedbacks = VendorFeedback.objects.filter(
+            vendor_id=vendor_id,
+            is_visible=True
+        ).order_by("-created_at")
+ 
         paginator = FeedbackPagination()
         page = paginator.paginate_queryset(feedbacks, request)
         serializer = VendorFeedbackSerializer(page, many=True)
+ 
         return paginator.get_paginated_response(serializer.data)
  
  
 class AddFeedbackReply(APIView):
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+ 
     def post(self, request, feedback_id):
+        vendor_id = request.user.id      
+ 
         feedback = get_object_or_404(VendorFeedback, id=feedback_id)
  
-        reply_by = request.data.get('reply_by')
-        vendor_id_from_request = request.data.get('vendor_id')
+        reply_by = request.data.get("reply_by", "VENDOR")
  
         if reply_by == "VENDOR":
-            if not vendor_id_from_request:
-                return Response({"error": "vendor_id required"}, status=400)
- 
-            if str(feedback.vendor_id) != str(vendor_id_from_request):
+            if feedback.vendor_id != vendor_id:
                 return Response({"error": "Permission denied"}, status=403)
  
-        serializer = VendorFeedbackReplySerializer(data=request.data)
+        data = request.data.copy()
+        data['vendor_id'] = vendor_id
+ 
+        serializer = VendorFeedbackReplySerializer(data=data)
  
         if serializer.is_valid():
             serializer.save(feedback=feedback)
@@ -2828,4 +2841,5 @@ class AddFeedbackReply(APIView):
             )
  
         return Response(serializer.errors, status=400)
+ 
 
