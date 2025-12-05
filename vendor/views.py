@@ -22,6 +22,7 @@ from .filters import OrderFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.exceptions import PermissionDenied
 from user.models import UserRegistration
+from rest_framework_simplejwt.views import TokenRefreshView
 
 from .models import (
     Vendor, 
@@ -41,6 +42,8 @@ from .models import (
     VendorNotification,
     VendorFeedbackReply,
     VendorFeedback,
+    BlacklistedToken,
+    RefreshTokenStore,
 )
 
 from .serializers import (
@@ -488,8 +491,6 @@ class VendorSignupView(generics.GenericAPIView):
 class VendorLoginView(generics.GenericAPIView):
     serializer_class = VendorLoginSerializer
     permission_classes = [AllowAny]
-    # authentication_classes = [JWTAuthentication]
-    # permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -543,9 +544,15 @@ class VendorLoginView(generics.GenericAPIView):
                 "browser_version": device_info["browser_version"],
             }
             )
-        
-        refresh = RefreshToken.for_user(user)
+        RefreshTokenStore.objects.filter(user=user).delete()
 
+        # Create new refresh+access tokens
+        refresh = RefreshToken.for_user(user)
+        RefreshTokenStore.objects.create(
+            user=user,
+            refresh_token= str(refresh)
+
+        )
         vendor_data = VendorDataSerializer(user).data
         vendor_data.update({
             "access": str(refresh.access_token),
@@ -2854,3 +2861,85 @@ class AddFeedbackReply(APIView):
         return Response(serializer.errors, status=400)
  
 
+
+class VendorLogoutAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsVendor]
+    authentication_classes = [VendorJWTAuthentication]
+
+    def post(self, request):
+
+        # ACCESS TOKEN
+        auth_header = request.headers.get("Authorization")
+        if not auth_header:
+            return Response({"error": "Authorization header missing"}, status=400)
+
+        try:
+            _, access_token = auth_header.split()
+        except:
+            return Response({"error": "Invalid Authorization header"}, status=400)
+
+        # BLACKLIST ACCESS TOKEN
+        BlacklistedToken.objects.create(
+            user=request.user,
+            token=access_token
+        )
+
+        # REFRESH TOKEN
+        refresh_token = request.data.get("refresh")
+        if not refresh_token:
+            return Response({"error": "Refresh token required"}, status=400)
+
+        # Check if refresh token exists
+        try:
+            stored = RefreshTokenStore.objects.get(refresh_token=refresh_token)
+        except RefreshTokenStore.DoesNotExist:
+            return Response({"error": "Invalid refresh token"}, status=400)
+
+        # BLACKLIST REFRESH TOKEN
+        BlacklistedToken.objects.create(
+            user=request.user,
+            token=refresh_token
+        )
+
+        # Delete stored token
+        stored.delete()
+
+        return Response({"message": "Logout Successful"}, status=200)
+
+    
+@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Generate new access Token']))
+class CustomTokenRefreshView(TokenRefreshView):
+    def post(self, request, *args, **kwargs):
+        refresh_token = request.data.get("refresh")
+
+        if not refresh_token:
+            raise AuthenticationFailed("Refresh token required.")
+
+        # CHECK IF TOKEN IS BLACKLISTED
+        if BlacklistedToken.objects.filter(token=refresh_token).exists():
+            raise AuthenticationFailed("Refresh token is blacklisted.")
+
+        # Decode refresh token to extract user_id
+        try:
+            decoded = RefreshToken(refresh_token)
+            user_id = decoded["user_id"]
+        except Exception:
+            raise AuthenticationFailed("Invalid refresh token format.")
+
+        # CHECK IF USER EXISTS
+        try:
+            user = Vendor_registration.objects.get(id=user_id)
+        except Vendor_registration.DoesNotExist:
+            raise AuthenticationFailed("User not found.")
+
+        # Ensure token matches the LATEST stored refresh token
+        stored = RefreshTokenStore.objects.filter(user=user).first()
+
+        if not stored:
+            raise AuthenticationFailed("No active refresh token for this user.")
+
+        if stored.refresh_token != refresh_token:
+            raise AuthenticationFailed("Old or invalid refresh token.")
+
+        # issue NEW access token
+        return super().post(request, *args, **kwargs)

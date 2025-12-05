@@ -491,3 +491,19 @@ class VendorFeedbackReply(models.Model):
     def __str__(self):
         return f"Reply by {self.reply_by} on feedback {self.feedback.id}"
  
+
+class RefreshTokenStore(models.Model):
+    user = models.ForeignKey("Vendor_registration", on_delete=models.CASCADE, blank=True)
+    refresh_token = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user_id}"
+
+class BlacklistedToken(models.Model):
+    user = models.ForeignKey("Vendor_registration", on_delete=models.CASCADE)
+    token = models.TextField()
+    blacklisted_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user_id} - {self.blacklisted_at}"
