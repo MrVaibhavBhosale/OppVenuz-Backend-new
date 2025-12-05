@@ -2103,14 +2103,25 @@ class GetVendorBannerAPIView(APIView):
             best_deal = BestDealBanner.objects.order_by('-id').first()
             best_deal_url = best_deal.image if best_deal else None
 
-            return Response({
+            response_data = {
                 "business_name": vendor.business_name,
                 "celebrity_banner": celebrity_url,
                 "best_deal_banner": best_deal_url
+            }
+
+            return Response({
+                "status": True,
+                "message": "Base API Data fetched successfully",
+                "data": response_data
             }, status=200)
 
         except Exception as e:
-            return Response({"error": str(e)}, status=500)
+            return Response({
+                "status": False,
+                "message": "Something went wrong",
+                "error": str(e)
+            }, status=500)
+
 
 class ProductAdditionBaseView(APIView):
     def upload_to_s3(self, file_obj):
