@@ -2110,14 +2110,25 @@ class GetVendorBannerAPIView(APIView):
             best_deal = BestDealBanner.objects.order_by('-id').first()
             best_deal_url = best_deal.image if best_deal else None
 
-            return Response({
+            response_data = {
                 "business_name": vendor.business_name,
                 "celebrity_banner": celebrity_url,
                 "best_deal_banner": best_deal_url
+            }
+
+            return Response({
+                "status": True,
+                "message": "Base API Data fetched successfully",
+                "data": response_data
             }, status=200)
 
         except Exception as e:
-            return Response({"error": str(e)}, status=500)
+            return Response({
+                "status": False,
+                "message": "Something went wrong",
+                "error": str(e)
+            }, status=500)
+
 
 class ProductAdditionBaseView(APIView):
     def upload_to_s3(self, file_obj):
@@ -2510,35 +2521,52 @@ class NotificationPagination(PageNumberPagination):
  
  
 class VendorNotificationListView(APIView):
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+ 
     def get(self, request):
-        vendor_id = request.query_params.get("vendor_id")
+ 
+        vendor_id = request.user.id
         active_status = get_status("Active")
+ 
+        filter_type = request.query_params.get("filter", "all").lower()
  
         notifications = VendorNotification.objects.filter(
             vendor_id=vendor_id,
             status=active_status
-        )
+        ).order_by("-created_at")
+ 
+        if filter_type == "unread":
+            notifications = notifications.filter(is_read=False)
+ 
+        unread_count = VendorNotification.objects.filter(
+            vendor_id=vendor_id,
+            status=active_status,
+            is_read=False
+        ).count()
  
         paginator = NotificationPagination()
         page = paginator.paginate_queryset(notifications, request)
  
-        unread_count = notifications.filter(is_read=False).count()
- 
         serializer = VendorNotificationSerializer(page, many=True)
  
         return paginator.get_paginated_response({
+            "filter": filter_type,
             "unread_count": unread_count,
             "notifications": serializer.data
         })
  
 class MarkNotificationReadView(APIView):
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+ 
     def post(self, request, pk):
-        vendor_id = request.data.get("vendor_id")
+        vendor_id = request.user.id  
  
         notification = get_object_or_404(
             VendorNotification,
             id=pk,
-            vendor_id=vendor_id,
+            vendor_id=vendor_id
         )
  
         if not notification.is_read:
@@ -2547,14 +2575,19 @@ class MarkNotificationReadView(APIView):
  
         return Response({"message": "Notification marked as read"}, status=200)
  
- 
 class DeleteNotificationView(APIView):
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+ 
     def delete(self, request, pk):
-        vendor_id = request.data.get("vendor_id")
+        vendor_id = request.user.id
         deleted_status = get_status("Deleted")
  
         try:
-            notification = VendorNotification.objects.get(id=pk, vendor_id=vendor_id)
+            notification = VendorNotification.objects.get(
+                id=pk,
+                vendor_id=vendor_id
+            )
         except VendorNotification.DoesNotExist:
             return Response({"status": False, "message": "Notification not found."}, 404)
  
@@ -2563,11 +2596,12 @@ class DeleteNotificationView(APIView):
  
         return Response({"status": True, "message": "Notification deleted."}, 200)
  
- 
- 
 class ClearAllNotificationsView(APIView):
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+ 
     def post(self, request):
-        vendor_id = request.data.get("vendor_id")
+        vendor_id = request.user.id  
  
         active_status = get_status("Active")
         deleted_status = get_status("Deleted")
@@ -2579,13 +2613,17 @@ class ClearAllNotificationsView(APIView):
  
         return Response({"status": True, "message": f"{count} notifications cleared."}, 200)
  
- 
- 
 class NotificationToggleView(APIView):
-    def post(self, request):
-        vendor_id = request.data.get("vendor_id")
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated]
  
-        setting, _ = VendorNotificationSettings.objects.get_or_create(vendor_id=vendor_id)
+    def post(self, request):
+        vendor_id = request.user.id  
+ 
+        setting, _ = VendorNotificationSettings.objects.get_or_create(
+            vendor_id=vendor_id
+        )
+ 
         setting.is_enabled = not setting.is_enabled
         setting.save(update_fields=["is_enabled"])
  
@@ -2776,29 +2814,42 @@ class FeedbackPagination(PageNumberPagination):
     max_page_size = 100
  
 class GetVendorFeedback(APIView):
-    def get(self, request, vendor_id):
-        feedbacks = VendorFeedback.objects.filter(vendor_id=vendor_id, is_visible=True).order_by("-created_at")
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+ 
+    def get(self, request):
+        vendor_id = request.user.id  
+        feedbacks = VendorFeedback.objects.filter(
+            vendor_id=vendor_id,
+            is_visible=True
+        ).order_by("-created_at")
+ 
         paginator = FeedbackPagination()
         page = paginator.paginate_queryset(feedbacks, request)
         serializer = VendorFeedbackSerializer(page, many=True)
+ 
         return paginator.get_paginated_response(serializer.data)
  
  
 class AddFeedbackReply(APIView):
+    authentication_classes = [VendorJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+ 
     def post(self, request, feedback_id):
+        vendor_id = request.user.id      
+ 
         feedback = get_object_or_404(VendorFeedback, id=feedback_id)
  
-        reply_by = request.data.get('reply_by')
-        vendor_id_from_request = request.data.get('vendor_id')
+        reply_by = request.data.get("reply_by", "VENDOR")
  
         if reply_by == "VENDOR":
-            if not vendor_id_from_request:
-                return Response({"error": "vendor_id required"}, status=400)
- 
-            if str(feedback.vendor_id) != str(vendor_id_from_request):
+            if feedback.vendor_id != vendor_id:
                 return Response({"error": "Permission denied"}, status=403)
  
-        serializer = VendorFeedbackReplySerializer(data=request.data)
+        data = request.data.copy()
+        data['vendor_id'] = vendor_id
+ 
+        serializer = VendorFeedbackReplySerializer(data=data)
  
         if serializer.is_valid():
             serializer.save(feedback=feedback)
@@ -2808,6 +2859,7 @@ class AddFeedbackReply(APIView):
             )
  
         return Response(serializer.errors, status=400)
+ 
 
 
 class VendorLogoutAPIView(APIView):
