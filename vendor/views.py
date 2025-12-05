@@ -126,7 +126,6 @@ class VendorBasicDetailsAPI(generics.CreateAPIView, generics.UpdateAPIView):
             "data": serializer.data
         }, status=status.HTTP_200_OK)
     
-@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Vendor Details']))
 class GetVendorDescriptionAPI(generics.GenericAPIView):
     serializer_class = VenderBusinessDescriptionSerializer
     permission_classes = [IsAuthenticated]
@@ -154,7 +153,6 @@ class GetVendorDescriptionAPI(generics.GenericAPIView):
         }, status=status.HTTP_200_OK)
 
 
-@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Vendor Details']))
 class VendorDescriptionAPI(generics.GenericAPIView):
     serializer_class = VenderBusinessDescriptionSerializer
     permission_classes = [IsAuthenticated]
