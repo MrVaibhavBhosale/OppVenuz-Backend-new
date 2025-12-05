@@ -64,8 +64,7 @@ from .views import (
     updateOrderStatusAPIView,
     GetVendorFeedback,
     AddFeedbackReply,
-    VendorLogoutAPIView,
-    CustomTokenRefreshView
+
 
 
 
@@ -140,7 +139,6 @@ urlpatterns = [
 
     path('getFeedback/', GetVendorFeedback.as_view(), name='get-feedback'),
     path('addReply/<int:feedback_id>/', AddFeedbackReply.as_view(), name='add-feedback-reply'),
-    path('logout/', VendorLogoutAPIView.as_view(), name='logout-vendor'),
-    path('token/refresh/', CustomTokenRefreshView.as_view(), name='generate-new-access-token'),
+
 
 ]
