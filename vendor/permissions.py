@@ -20,5 +20,5 @@ class IsVendor(permissions.BasePermission):
         (like their own services).
         """
         if isinstance(request.user, Vendor_registration):
-            return getattr(obj, 'vendor_id', None) == request.user
+            return getattr(obj, 'vendor_id', None) == request.user.id
         return False
