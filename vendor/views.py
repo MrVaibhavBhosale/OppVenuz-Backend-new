@@ -127,78 +127,71 @@ class VendorBasicDetailsAPI(generics.CreateAPIView, generics.UpdateAPIView):
         }, status=status.HTTP_200_OK)
     
 @method_decorator(name='put', decorator=swagger_auto_schema(tags=['Vendor Details']))
-class VendorDescriptionAPI(generics.UpdateAPIView):
+class GetVendorDescriptionAPI(generics.GenericAPIView):
     serializer_class = VenderBusinessDescriptionSerializer
-    authentication_classes = [VendorJWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    queryset = VenderBusinessDescription.objects.all()
-    lookup_field = "vendor_reg_id"
-
-    def update(self, request, *args, **kwargs):
-        vendor_reg_id = kwargs.get("vendor_reg_id")
-
-        # Check if vendor exists
-        try:
-            vendor = Vendor_registration.objects.get(vendor_id=vendor_reg_id)
-        except Vendor_registration.DoesNotExist:
-            return Response(
-                {"status": "error", "message": "Vendor not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        #find existing record
-        description_record = VenderBusinessDescription.objects.filter(vendor_reg_id=vendor_reg_id).first()
-
-        if description_record:
-            serializer = self.get_serializer(description_record, data=request.data, partial=True)
-            serializer.is_valid(raise_exception=True)
-            serializer.save(updated_by=request.user.username if request.user else None)
-            message = "Vendor description updated successfully"
-        else:
-            serializer = self.get_serializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-            serializer.save(
-                vendor=vendor,
-                vendor_reg_id=vendor.vendor_id, 
-                created_by=request.user.username if request.user else None
-            )
-            message = "Vendor description created successfully"
-
-        return Response(
-            {
-                "status": "success",
-                "message": message,
-                "data": serializer.data
-            },
-            status=status.HTTP_200_OK
-        )
-@method_decorator(name='get', decorator=swagger_auto_schema(tags=['Vendor Details']))
-class GetVendorDescriptionAPI(generics.ListAPIView):
-    serializer_class = VenderBusinessDescriptionSerializer
-    authentication_classes = [VendorJWTAuthentication]
     permission_classes = [IsAuthenticated]
 
-    def get_queryset(self):
-        queryset = VenderBusinessDescription.objects.filter(status=1).order_by('-id')
+    def get(self, request):
+        vendor = request.user   
 
-        # Filter by vendor_id if provided
-        vendor_id = self.request.query_params.get('vendor_id', None)
-        if vendor_id:
-            queryset = queryset.filter(vendor_id=vendor_id)
-            if not queryset.exists():
-                logger.warning(f"No details found for vendor_id: {vendor_id}")
+        if not vendor:
             return Response({
-                "error": "No details found for vendor_id {vendor_id}"
+                "status": False,
+                "message": "Vendor not found."
             }, status=status.HTTP_404_NOT_FOUND)
-        return queryset
 
-    def list(self, request, *args, **kwargs):
-        serializer = self.get_serializer(self.get_queryset(), many=True)
+        description_obj, _ = VenderBusinessDescription.objects.get_or_create(
+            vendor=vendor,
+            vendor_reg_id=vendor.vendor_id
+        )
+
+        serializer = self.get_serializer(description_obj)
+
         return Response({
             "status": True,
-            "message": "Details fetched successfully",
+            "message": "Vendor description fetched successfully.",
             "data": serializer.data
         }, status=status.HTTP_200_OK)
+
+
+@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Vendor Details']))
+class VendorDescriptionAPI(generics.GenericAPIView):
+    serializer_class = VenderBusinessDescriptionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request):
+        vendor = request.user  
+
+        if not vendor:
+            return Response({
+                "status": False,
+                "message": "Vendor not found."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        description_obj, created = VenderBusinessDescription.objects.get_or_create(
+            vendor=vendor,
+            vendor_reg_id=vendor.vendor_id
+        )
+
+        serializer = self.get_serializer(description_obj, data=request.data, partial=True)
+
+        if serializer.is_valid():
+            instance = serializer.save(updated_by=request.user.email)
+
+            if created and not instance.created_by:
+                instance.created_by = request.user.email
+                instance.save(update_fields=['created_by'])
+
+            return Response({
+                "status": True,
+                "message": "Vendor description updated successfully.",
+                "data": self.get_serializer(instance).data
+            }, status=status.HTTP_200_OK)
+
+        return Response({
+            "status": False,
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
 
 class VendorListCreateAPI(generics.ListCreateAPIView):
     serializer_class = VendorSerializer
