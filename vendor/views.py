@@ -22,7 +22,7 @@ from .filters import OrderFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.exceptions import PermissionDenied
 from user.models import UserRegistration
-
+from .paginations import FeedbackPagination
 from .models import (
     Vendor, 
     VendorDevice, 
