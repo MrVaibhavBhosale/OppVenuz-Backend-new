@@ -89,6 +89,7 @@ class Order(models.Model):
     coupon_code = models.CharField(max_length=50, null=True, blank=True)
     order_date = models.DateTimeField(auto_now_add=True, blank=True)
     payment_date = models.DateTimeField(auto_now=True, null=True, blank=True)
+    reason = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True, blank=True)
     created_by = models.CharField(max_length=50, default='user')
