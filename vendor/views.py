@@ -41,8 +41,6 @@ from .models import (
     VendorNotification,
     VendorFeedbackReply,
     VendorFeedback,
-    BlacklistedToken,
-    RefreshTokenStore
 )
 
 from .serializers import (
@@ -90,7 +88,6 @@ from .utils import (
     calculate_file_hash,
 )
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.views import TokenRefreshView
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from user_agents import parse
@@ -129,7 +126,6 @@ class VendorBasicDetailsAPI(generics.CreateAPIView, generics.UpdateAPIView):
             "data": serializer.data
         }, status=status.HTTP_200_OK)
     
-@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Vendor Details']))
 class GetVendorDescriptionAPI(generics.GenericAPIView):
     serializer_class = VenderBusinessDescriptionSerializer
     permission_classes = [IsAuthenticated]
@@ -157,7 +153,6 @@ class GetVendorDescriptionAPI(generics.GenericAPIView):
         }, status=status.HTTP_200_OK)
 
 
-@method_decorator(name='put', decorator=swagger_auto_schema(tags=['Vendor Details']))
 class VendorDescriptionAPI(generics.GenericAPIView):
     serializer_class = VenderBusinessDescriptionSerializer
     permission_classes = [IsAuthenticated]
@@ -539,14 +534,8 @@ class VendorLoginView(generics.GenericAPIView):
                 "browser_version": device_info["browser_version"],
             }
             )
-        RefreshTokenStore.objects.filter(user=user).delete()
-
+        
         refresh = RefreshToken.for_user(user)
-        RefreshTokenStore.objects.create(
-            user=user,
-            refresh_token= str(refresh)
-
-        )
 
         vendor_data = VendorDataSerializer(user).data
         vendor_data.update({
@@ -2633,6 +2622,7 @@ class OrderListAPIView(generics.ListAPIView):
     filter_backends = [DjangoFilterBackend]
     filterset_class = OrderFilter
     permission_classes = [IsAuthenticated, IsVendor]
+    pagination_class = FeedbackPagination
 
     def get_queryset(self):
         #user = self.request.user
@@ -2651,79 +2641,68 @@ class OrderListAPIView(generics.ListAPIView):
 
     def list(self, request, *args, **kwargs):
 
-        valid_fields = ["order_status"]
-
+        valid_fields = ["order_status", "page", "page_size"]
         for key in request.query_params.keys():
             if key not in valid_fields:
-                logger.warning("Invalid filter key received: %s", key)
 
                 return Response({
                     "success": False,
-                    "message": f"Invalid filter parameter '{key}' "
-                },
-                status=status.HTTP_400_BAD_REQUEST)           
-            
+                    "message": f"Invalid filter parameter '{key}'"
+                }, status=status.HTTP_400_BAD_REQUEST)
+
         try:
             queryset = self.get_queryset()
 
-            #total count for summary
+            # Summary
             total_count = queryset.count()
             completed_count = queryset.filter(order_status=OrderStatus.COMPLETED).count()
             cancelled_count = queryset.filter(order_status=OrderStatus.CANCELLED).count()
 
+            # Filter logic
             order_status_param = request.query_params.get("order_status")
+            filter_applied = False
 
             if order_status_param is not None:
                 try:
                     order_status_param = int(order_status_param)
-                except: 
+                except:
                     return Response({
                         "success": False,
                         "message": "order_status must be an integer"
-                    },status=status.HTTP_400_BAD_REQUEST)
-                
-                valid_status_ids = [choice[0] for choice in OrderStatus.CHOICES]
+                    }, status=status.HTTP_400_BAD_REQUEST)
 
+                valid_status_ids = [choice[0] for choice in OrderStatus.CHOICES]
                 if order_status_param not in valid_status_ids:
                     return Response({
                         "success": False,
-                        "message": f"Invalid order_status ID '{order_status_param}' "
-                    },status=status.HTTP_400_BAD_REQUEST)
-                
+                        "message": f"Invalid order_status ID '{order_status_param}'"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
                 queryset = queryset.filter(order_status=order_status_param)
-                serializer = self.get_serializer(queryset, many=True)
+                filter_applied = True
 
-                return Response({
-                    "success": True,
-                    "message": "Filtered order list fetched successfully",
-                    "filter_applied": True,
-                    "total_count_before_filter": total_count,
-                    "filtered_count": queryset.count(),
-                    "data": serializer.data
-                }, status=status.HTTP_200_OK)
+            # APPLY PAGINATION
+            page = self.paginate_queryset(queryset)
+            serializer = self.get_serializer(page, many=True)
 
-            # No filter Response
-            serializer = self.get_serializer(queryset, many=True)
-            return Response({
+            return self.get_paginated_response({
                 "success": True,
-                "message": "All order list fetched successfully",
-                "filter_applied": False,
-                "total_count": total_count,
-                "Completed_orders": completed_count,
+                "message": "Order list fetched successfully",
+                "filter_applied": filter_applied,
+                "total_count_before_filter": total_count,
+                "filtered_count": queryset.count(),
+                "completed_orders": completed_count,
                 "cancelled_orders": cancelled_count,
                 "data": serializer.data
-            }, status=status.HTTP_200_OK)
-        
+            })
+
         except Exception as e:
             logger.error(f"OrderListAPIView Error: {str(e)}", exc_info=True)
-            return Response(
-                {
-                    "success": False,
-                    "message": "Something went wrong while fetching orders",
-                    "details": str(e),
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response({
+                "success": False,
+                "message": "Something went wrong while fetching orders",
+                "details": str(e),
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class OrderListByIdView(generics.RetrieveAPIView):
@@ -2856,85 +2835,3 @@ class AddFeedbackReply(APIView):
         return Response(serializer.errors, status=400)
  
 
-@method_decorator(name='post', decorator=swagger_auto_schema(tags=['vendor logout']))
-class VendorLogoutAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsVendor]
-    authentication_classes = [VendorJWTAuthentication]
-
-    def post(self, request):
-
-        # ACCESS TOKEN
-        auth_header = request.headers.get("Authorization")
-        if not auth_header:
-            return Response({"error": "Authorization header missing"}, status=400)
-
-        try:
-            _, access_token = auth_header.split()
-        except:
-            return Response({"error": "Invalid Authorization header"}, status=400)
-
-        # BLACKLIST ACCESS TOKEN
-        BlacklistedToken.objects.create(
-            user=request.user,
-            token=access_token
-        )
-
-        # REFRESH TOKEN
-        refresh_token = request.data.get("refresh")
-        if not refresh_token:
-            return Response({"error": "Refresh token required"}, status=400)
-
-        # Check if refresh token exists
-        try:
-            stored = RefreshTokenStore.objects.get(refresh_token=refresh_token)
-        except RefreshTokenStore.DoesNotExist:
-            return Response({"error": "Invalid refresh token"}, status=400)
-
-        # BLACKLIST REFRESH TOKEN
-        BlacklistedToken.objects.create(
-            user=request.user,
-            token=refresh_token
-        )
-
-        # Delete stored token
-        stored.delete()
-
-        return Response({"message": "Logout Successful"}, status=200)
-
-    
-@method_decorator(name='post', decorator=swagger_auto_schema(tags=['Generate new access Token']))
-class CustomTokenRefreshView(TokenRefreshView):
-    def post(self, request, *args, **kwargs):
-        refresh_token = request.data.get("refresh")
-
-        if not refresh_token:
-            raise AuthenticationFailed("Refresh token required.")
-
-        # CHECK IF TOKEN IS BLACKLISTED
-        if BlacklistedToken.objects.filter(token=refresh_token).exists():
-            raise AuthenticationFailed("Refresh token is blacklisted.")
-
-        # Decode refresh token to extract user_id
-        try:
-            decoded = RefreshToken(refresh_token)
-            user_id = decoded["user_id"]
-        except Exception:
-            raise AuthenticationFailed("Invalid refresh token format.")
-
-        # CHECK IF USER EXISTS
-        try:
-            user = Vendor_registration.objects.get(id=user_id)
-        except Vendor_registration.DoesNotExist:
-            raise AuthenticationFailed("User not found.")
-
-        # Ensure token matches the LATEST stored refresh token
-        stored = RefreshTokenStore.objects.filter(user=user).first()
-
-        if not stored:
-            raise AuthenticationFailed("No active refresh token for this user.")
-
-        if stored.refresh_token != refresh_token:
-            raise AuthenticationFailed("Old or invalid refresh token.")
-
-        # issue NEW access token
-        return super().post(request, *args, **kwargs)
