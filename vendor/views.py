@@ -2622,6 +2622,7 @@ class OrderListAPIView(generics.ListAPIView):
     filter_backends = [DjangoFilterBackend]
     filterset_class = OrderFilter
     permission_classes = [IsAuthenticated, IsVendor]
+    pagination_class = FeedbackPagination
 
     def get_queryset(self):
         #user = self.request.user
@@ -2640,79 +2641,68 @@ class OrderListAPIView(generics.ListAPIView):
 
     def list(self, request, *args, **kwargs):
 
-        valid_fields = ["order_status"]
-
+        valid_fields = ["order_status", "page", "page_size"]
         for key in request.query_params.keys():
             if key not in valid_fields:
-                logger.warning("Invalid filter key received: %s", key)
 
                 return Response({
                     "success": False,
-                    "message": f"Invalid filter parameter '{key}' "
-                },
-                status=status.HTTP_400_BAD_REQUEST)           
-            
+                    "message": f"Invalid filter parameter '{key}'"
+                }, status=status.HTTP_400_BAD_REQUEST)
+
         try:
             queryset = self.get_queryset()
 
-            #total count for summary
+            # Summary
             total_count = queryset.count()
             completed_count = queryset.filter(order_status=OrderStatus.COMPLETED).count()
             cancelled_count = queryset.filter(order_status=OrderStatus.CANCELLED).count()
 
+            # Filter logic
             order_status_param = request.query_params.get("order_status")
+            filter_applied = False
 
             if order_status_param is not None:
                 try:
                     order_status_param = int(order_status_param)
-                except: 
+                except:
                     return Response({
                         "success": False,
                         "message": "order_status must be an integer"
-                    },status=status.HTTP_400_BAD_REQUEST)
-                
-                valid_status_ids = [choice[0] for choice in OrderStatus.CHOICES]
+                    }, status=status.HTTP_400_BAD_REQUEST)
 
+                valid_status_ids = [choice[0] for choice in OrderStatus.CHOICES]
                 if order_status_param not in valid_status_ids:
                     return Response({
                         "success": False,
-                        "message": f"Invalid order_status ID '{order_status_param}' "
-                    },status=status.HTTP_400_BAD_REQUEST)
-                
+                        "message": f"Invalid order_status ID '{order_status_param}'"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
                 queryset = queryset.filter(order_status=order_status_param)
-                serializer = self.get_serializer(queryset, many=True)
+                filter_applied = True
 
-                return Response({
-                    "success": True,
-                    "message": "Filtered order list fetched successfully",
-                    "filter_applied": True,
-                    "total_count_before_filter": total_count,
-                    "filtered_count": queryset.count(),
-                    "data": serializer.data
-                }, status=status.HTTP_200_OK)
+            # APPLY PAGINATION
+            page = self.paginate_queryset(queryset)
+            serializer = self.get_serializer(page, many=True)
 
-            # No filter Response
-            serializer = self.get_serializer(queryset, many=True)
-            return Response({
+            return self.get_paginated_response({
                 "success": True,
-                "message": "All order list fetched successfully",
-                "filter_applied": False,
-                "total_count": total_count,
-                "Completed_orders": completed_count,
+                "message": "Order list fetched successfully",
+                "filter_applied": filter_applied,
+                "total_count_before_filter": total_count,
+                "filtered_count": queryset.count(),
+                "completed_orders": completed_count,
                 "cancelled_orders": cancelled_count,
                 "data": serializer.data
-            }, status=status.HTTP_200_OK)
-        
+            })
+
         except Exception as e:
             logger.error(f"OrderListAPIView Error: {str(e)}", exc_info=True)
-            return Response(
-                {
-                    "success": False,
-                    "message": "Something went wrong while fetching orders",
-                    "details": str(e),
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response({
+                "success": False,
+                "message": "Something went wrong while fetching orders",
+                "details": str(e),
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class OrderListByIdView(generics.RetrieveAPIView):
