@@ -98,7 +98,6 @@ import boto3
 import uuid
 import os
 from rest_framework.views import APIView
-from .views import FeedbackPagination
 logger = logging.getLogger("django")
 
 
