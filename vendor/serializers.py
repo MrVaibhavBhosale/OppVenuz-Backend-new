@@ -665,17 +665,62 @@ class OrderListByIdSerializer(serializers.ModelSerializer):
         ]
 
 class UpdateOrderStatusSerializer(serializers.ModelSerializer):
-    order_status_name = serializers.CharField(source="get_order_status_display", required=True)
+    order_status_name = serializers.CharField(
+        source="get_order_status_display",
+        read_only=True
+    )
+
+    reason = serializers.CharField(
+        required=False, allow_blank=True, write_only=False  # make it readable
+    )
+
     class Meta:
         model = Order
-        fields = ["order_status", "order_status_name"]
-        
-    def validate_order_status(self, value):
-        valid_status = dict(OrderStatus.CHOICES).keys()
+        fields = ["order_status", "order_status_name", "reason"]
 
-        if value not in valid_status:
-            raise serializers.ValidationError("Invalid order status")
-        return value
+    def validate(self, attrs):
+        order_status = attrs.get("order_status")
+        reason = attrs.get("reason", "")
+
+        allowed_statuses = [1, 2, 3, 4]  # 4 = Cancelled
+
+        # Validate order_status
+        if order_status not in allowed_statuses:
+            raise serializers.ValidationError({
+                "order_status": "Invalid order status. Allowed: 1, 2, 3, 4 (Cancelled)."
+            })
+
+        # Require reason only for Cancelled
+        if order_status == 4 and not reason:
+            raise serializers.ValidationError({
+                "reason": "Cancellation reason is required when order is Cancelled."
+            })
+
+        # Do not allow reason for non-cancelled statuses
+        if order_status != 4 and reason:
+            raise serializers.ValidationError({
+                "reason": "Reason should only be provided when order is Cancelled."
+            })
+
+        return attrs
+
+    def update(self, instance, validated_data):
+        instance.order_status = validated_data.get("order_status", instance.order_status)
+
+        if instance.order_status == 4:
+            instance.reason = validated_data.get("reason")
+        else:
+            instance.reason = ""  # clear reason if not cancelled
+
+        instance.save()
+        return instance
+
+    def to_representation(self, instance):
+        """Show reason only if order is cancelled"""
+        data = super().to_representation(instance)
+        if instance.order_status != 4:
+            data.pop("reason", None)
+        return data
       
 class VendorFeedbackReplySerializer(serializers.ModelSerializer):
     class Meta:
