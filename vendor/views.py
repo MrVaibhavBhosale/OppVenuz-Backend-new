@@ -1822,12 +1822,17 @@ class VendorContactUpdateAPIView(APIView):
 
         if serializer.is_valid():
             serializer.save()
+
             return Response({
+                "status": True,  
                 "message": "Contact Information Updated Successfully",
                 "data": serializer.data
             }, status=status.HTTP_200_OK)
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            "status": False,
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
 
 
 class CreateCelebrityBannerAPIView(APIView):
