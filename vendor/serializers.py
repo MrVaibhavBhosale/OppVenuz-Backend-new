@@ -146,7 +146,8 @@ class VendorSignupSerializer(serializers.ModelSerializer):
 
     # ---------------- CREATE ----------------
     def create(self, validated_data):
-         best_suited_data = validated_data.pop('best_suited', [])
+        best_suited_data = validated_data.pop('best_suited', [])
+
         # Handle location (pincode, address, lat/lon)
         location = validated_data.pop('location', None)
         if location:
@@ -165,10 +166,11 @@ class VendorSignupSerializer(serializers.ModelSerializer):
         user = Vendor_registration(is_active=True, **validated_data)
         user.set_mpin(mpin)
         user.save()
+
         if best_suited_data:
             user.best_suited.set(best_suited_data)
 
-        # ✅ Default image set (if not given)
+        # Default image
         if not user.profile_image:
             user.profile_image = os.getenv('DEFAULT_VENDOR_IMAGE_PATH')
         user.save()
@@ -181,10 +183,11 @@ class VendorSignupSerializer(serializers.ModelSerializer):
         if uploaded_docs.exists():
             document_ids = list(uploaded_docs.values_list("id", flat=True))
             user.document_id = document_ids
-            user.save(update_fields=["document_id"])        
+            user.save(update_fields=["document_id"])
 
         user.refresh_from_db()
         return user
+
 
     # ---------------- RESPONSE ----------------
     def to_representation(self, instance):
