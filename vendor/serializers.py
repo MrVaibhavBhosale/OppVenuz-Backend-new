@@ -79,8 +79,8 @@ class VendorSignupSerializer(serializers.ModelSerializer):
     documents = VendorDocumentSerializer(many=True, required=False)
     best_suited = serializers.PrimaryKeyRelatedField(
         queryset=Best_suited_for.objects.all(),
-        required=False,
-        allow_null=True
+        many=True,
+        required=False
     )
 
     class Meta:
