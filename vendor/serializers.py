@@ -146,6 +146,7 @@ class VendorSignupSerializer(serializers.ModelSerializer):
 
     # ---------------- CREATE ----------------
     def create(self, validated_data):
+         best_suited_data = validated_data.pop('best_suited', [])
         # Handle location (pincode, address, lat/lon)
         location = validated_data.pop('location', None)
         if location:
@@ -164,6 +165,8 @@ class VendorSignupSerializer(serializers.ModelSerializer):
         user = Vendor_registration(is_active=True, **validated_data)
         user.set_mpin(mpin)
         user.save()
+        if best_suited_data:
+            user.best_suited.set(best_suited_data)
 
         # ✅ Default image set (if not given)
         if not user.profile_image:
