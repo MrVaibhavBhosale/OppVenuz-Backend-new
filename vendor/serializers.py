@@ -79,8 +79,8 @@ class VendorSignupSerializer(serializers.ModelSerializer):
     documents = VendorDocumentSerializer(many=True, required=False)
     best_suited = serializers.PrimaryKeyRelatedField(
         queryset=Best_suited_for.objects.all(),
-        many=True,
         required=False
+        allow_null=True
     )
 
     class Meta:
@@ -165,8 +165,8 @@ class VendorSignupSerializer(serializers.ModelSerializer):
         user = Vendor_registration(is_active=True, **validated_data)
         user.set_mpin(mpin)
         user.save()
-        if best_suited_data:
-            user.best_suited.set(best_suited_data)
+        # if best_suited_data:
+        #     user.best_suited.set(best_suited_data)
 
         # ✅ Default image set (if not given)
         if not user.profile_image:
