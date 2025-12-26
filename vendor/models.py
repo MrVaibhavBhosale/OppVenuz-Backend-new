@@ -55,7 +55,7 @@ class Vendor_registration(models.Model):
     vendor_id = models.CharField(max_length=12, unique=True, blank=True)
     business_name = models.CharField(max_length=255)
     service_id = models.ForeignKey(Service_master, on_delete=models.PROTECT, null=True, blank=True)
-    best_suited = models.ManyToManyField(Best_suited_for, blank=True, related_name="vendors")
+    best_suited = models.ForeignKey(Best_suited_for, on_delete=models.PROTECT, null=True, blank=True
     referral_code = models.CharField(max_length=12, unique=True, blank=True)
     working_since = models.DateField()
     year_of_experience = models.IntegerField(default=0)
